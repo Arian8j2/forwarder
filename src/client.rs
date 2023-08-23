@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use std::{
     collections::HashMap,
     net::{SocketAddr, UdpSocket},
@@ -13,7 +13,7 @@ pub struct ClientData {
 }
 
 pub async fn setup_new_client(
-    redirect_addr: &str,
+    redirect_addr: SocketAddr,
     socket_map: &mut HashMap<SocketAddr, Arc<Mutex<ClientData>>>,
     client_addr: SocketAddr,
 ) -> Result<()> {
@@ -55,7 +55,7 @@ fn send_datas_need_to_send(client_socket: &UdpSocket, datas: &Arc<Mutex<ClientDa
     while let Some(data) = datas.datas_need_to_send.pop() {
         let res = client_socket.send(&data);
         if let Err(e) = res {
-            info!("failed to send packet from remote client: {e:?}");
+            warn!("failed to send packet from remote client: {e}");
         }
     }
 }

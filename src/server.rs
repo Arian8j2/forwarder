@@ -1,10 +1,14 @@
-use std::{net::{UdpSocket, SocketAddr}, collections::HashMap, sync::{Arc, Mutex}};
-use anyhow::{Result, Context};
-use log::info;
+use crate::client::{setup_new_client, ClientData};
+use anyhow::{Context, Result};
+use log::{info, warn};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, UdpSocket},
+    sync::{Arc, Mutex},
+};
 use tokio::task::yield_now;
-use crate::client::{ClientData, setup_new_client};
 
-pub async fn run_server(listen_addr: &str, redirect_addr: &str) -> Result<()> {
+pub async fn run_server(listen_addr: SocketAddr, redirect_addr: SocketAddr) -> Result<()> {
     let socket = UdpSocket::bind(listen_addr)
         .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
     socket
@@ -26,7 +30,7 @@ pub async fn run_server(listen_addr: &str, redirect_addr: &str) -> Result<()> {
             Some(data) => data,
             None => {
                 info!("new client '{addr}'");
-                setup_new_client(&redirect_addr, &mut socket_map, addr).await?;
+                setup_new_client(redirect_addr, &mut socket_map, addr).await?;
                 socket_map.get_mut(&addr).unwrap()
             }
         };
@@ -50,10 +54,9 @@ fn send_received_datas(
         for data in &datas.datas_received {
             let res = socket.send_to(&data, client_socket);
             if let Err(e) = res {
-                info!("couldn't send back datas received from remote: {e:?}");
+                warn!("couldn't send back datas received from remote: {e}");
             }
         }
         datas.datas_received.clear();
     }
 }
-

@@ -1,13 +1,13 @@
+mod cli;
 mod client;
 mod server;
 
 use anyhow::Result;
+use clap::Parser;
+use cli::Args;
 use log::LevelFilter;
 use server::run_server;
 use simple_logger::SimpleLogger;
-
-const LISTEN_ADDR: &str = "0.0.0.0:3939";
-const REDIRECT_ADDR: &str = "0.0.0.0:8585";
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -15,21 +15,23 @@ async fn main() -> Result<()> {
         .with_level(LevelFilter::Info)
         .init()
         .unwrap();
-    run_server(LISTEN_ADDR, REDIRECT_ADDR).await
+
+    let cli = Args::parse();
+    run_server(cli.listen_addr.into(), cli.remote_addr.into()).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ntest::timeout;
-    use std::time::Duration;
+    use std::{net::SocketAddr, str::FromStr, time::Duration};
     use tokio::time::sleep;
 
     #[tokio::test(flavor = "multi_thread")]
     #[timeout(4000)]
     async fn test_redirect_packets() {
-        let redirect_addr = "0.0.0.0:9392";
-        let server_addr = "0.0.0.0:2292";
+        let redirect_addr = SocketAddr::from_str("0.0.0.0:9392").unwrap();
+        let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
         tokio::spawn(run_server(server_addr, redirect_addr));
 
         let redirect_thread = tokio::spawn(async move {
