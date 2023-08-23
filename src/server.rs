@@ -1,190 +1,59 @@
-// use std::{task::Poll, net::SocketAddr, future::Future, pin::Pin, time::Duration};
-// use anyhow::Result;
-// use tower::Service;
-//
-// pub struct Server {
-//     clients: Vec<SocketAddr>
-// }
-//
-// impl Server {
-//     pub fn new() -> Self {
-//         Server {
-//             clients: Vec::new()
-//         }
-//     }
-// }
-//
-// pub struct Request {
-//     pub address: SocketAddr,
-//     pub message: Vec<u8>
-// }
-//
-// impl Service<Request> for Server {
-//     type Error = anyhow::Error;
-//     type Response = Vec<u8>;
-//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response>>>>;
-//
-//     fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<()>> {
-//         Poll::Ready(Ok(()))
-//     }
-//
-//     fn call(&mut self, req: Request) -> Self::Future {
-//         self.clients.push(req.address);
-//         println!("msg: {}", String::from_utf8(req.message).unwrap());
-//         Box::pin(async move {
-//             Ok(vec![1, 2, 4, 5])
-//         })
-//     }
-// }
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// // use std::{net::SocketAddr, time::Duration, sync::{Arc, Mutex}};
-// //
-// // use anyhow::{Result, bail};
-// // use tokio::{net::{UdpSocket}, time::sleep};
-// //
-// // use crate::REDIRECT_ADDR;
-// //
-// // const MAX_BUFFER_SIZE: usize = 2048;
-// //
-// // pub struct Server {
-// //     socket: UdpSocket,
-// //     clients: Arc<Mutex<Vec<Client>>>,
-// // }
-// //
-// // impl Server {
-// //     pub async fn from_addr(addr: &str) -> Result<Server> {
-// //         let socket = UdpSocket::bind(addr).await?;
-// //         Ok(Server { socket, clients: Vec::new() })
-// //     }
-// //
-// //     pub async fn run(mut self) {
-// //
-// //         loop {
-// //             let (message, addr) = match self.receive_message().await {
-// //                 Ok(m) => m,
-// //                 Err(err) => {
-// //                     println!("cycle error: {err}");
-// //                     continue;
-// //                 }
-// //             };
-// //
-// //             let mut found = false;
-// //             for client in self.clients.iter() {
-// //                 let mut client = client.lock().await;
-// //                 if client.addr != addr {
-// //                     continue;
-// //                 }
-// //
-// //                 found = true;
-// //                 client.pending_datas.push(message);
-// //                 break;
-// //             }
-// //
-// //             if !found {
-// //
-// //             }
-// //
-// //             // println!("msg: '{}'", String::from_utf8(message).unwrap());
-// //         }
-// //     }
-// //
-// //     pub async fn receive_message(&mut self) -> Result<(Vec<u8>, SocketAddr)> {
-// //         let mut buffer = vec![0u8; MAX_BUFFER_SIZE];
-// //         let (len, addr) = self.socket.recv_from(&mut buffer).await?;
-// //         unsafe {
-// //             buffer.set_len(len);
-// //         }
-// //
-// //         if buffer.len() == MAX_BUFFER_SIZE {
-// //             bail!("Maybe buffer size was not enough, Make sure to set MTU lower than {MAX_BUFFER_SIZE}");
-// //         }
-// //
-// //         Ok((buffer, addr))
-// //     }
-// //
-// //     async fn client_thread(addr: SocketAddr) -> Result<()> {
-// //         let client = Client::from_addr(addr).await?;
-// //         client.socket.connect(REDIRECT_ADDR).await?;
-// //
-// //         loop {
-// //             let mut datas = client.pending_datas.lock().await;
-// //             if datas.is_empty() {
-// //                 println!("empty");
-// //                 drop(datas);
-// //                 sleep(Duration::from_millis(10)).await;
-// //                 continue;
-// //             }
-// //
-// //             for data in datas.iter() {
-// //                 let Err(err) = client.socket.send(data).await else {
-// //                     continue;
-// //                 };
-// //
-// //                 println!("error while sending client data: {err}");
-// //             }
-// //             datas.clear();
-// //         }
-// //     }
-// // }
-// //
-// // struct Client {
-// //     addr: SocketAddr,
-// //     socket: UdpSocket,
-// //
-// //     // vector that contains multiple packets
-// //     pending_datas: Vec<Vec<u8>>,
-// // }
-// //
-// // impl Client {
-// //     async fn from_addr(addr: SocketAddr) -> Result<Self> {
-// //         let socket = UdpSocket::bind("0.0.0.0:0").await?;
-// //         Ok(Client {
-// //             addr,
-// //             socket,
-// //             pending_datas: Vec::new()
-// //         })
-// //     }
-// // }
+use std::{net::{UdpSocket, SocketAddr}, collections::HashMap, sync::{Arc, Mutex}};
+use anyhow::{Result, Context};
+use log::info;
+use tokio::task::yield_now;
+use crate::client::{ClientData, setup_new_client};
+
+pub async fn run_server(listen_addr: &str, redirect_addr: &str) -> Result<()> {
+    let socket = UdpSocket::bind(listen_addr)
+        .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
+    socket
+        .set_nonblocking(true)
+        .with_context(|| "Couldn't set server socket to nonblocking")?;
+
+    info!("listen on '{listen_addr}'");
+    let mut socket_map: HashMap<SocketAddr, Arc<Mutex<ClientData>>> = HashMap::new();
+    let mut buffer = vec![0u8; 2048];
+    loop {
+        send_received_datas(&socket, &mut socket_map);
+
+        let Ok((len, addr)) = socket.recv_from(&mut buffer) else {
+            yield_now().await;
+            continue;
+        };
+
+        let client_data = match socket_map.get_mut(&addr) {
+            Some(data) => data,
+            None => {
+                info!("new client '{addr}'");
+                setup_new_client(&redirect_addr, &mut socket_map, addr).await?;
+                socket_map.get_mut(&addr).unwrap()
+            }
+        };
+
+        let mut datas = client_data.lock().unwrap();
+        datas.datas_need_to_send.push(buffer[..len].to_vec());
+    }
+}
+
+#[inline]
+fn send_received_datas(
+    socket: &UdpSocket,
+    socket_map: &mut HashMap<SocketAddr, Arc<Mutex<ClientData>>>,
+) {
+    for (client_socket, datas) in socket_map.iter() {
+        let mut datas = datas.lock().unwrap();
+        if datas.datas_received.is_empty() {
+            continue;
+        }
+
+        for data in &datas.datas_received {
+            let res = socket.send_to(&data, client_socket);
+            if let Err(e) = res {
+                info!("couldn't send back datas received from remote: {e:?}");
+            }
+        }
+        datas.datas_received.clear();
+    }
+}
+
