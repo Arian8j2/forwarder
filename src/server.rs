@@ -1,11 +1,7 @@
-use crate::client::{setup_new_client, ClientData};
+use crate::client::{setup_new_client, Client};
 use anyhow::{Context, Result};
 use log::{info, warn};
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, UdpSocket},
-    sync::{Arc, Mutex},
-};
+use std::net::{SocketAddr, UdpSocket};
 use tokio::task::yield_now;
 
 pub async fn run_server(listen_addr: SocketAddr, redirect_addr: SocketAddr) -> Result<()> {
@@ -16,47 +12,44 @@ pub async fn run_server(listen_addr: SocketAddr, redirect_addr: SocketAddr) -> R
         .with_context(|| "Couldn't set server socket to nonblocking")?;
 
     info!("listen on '{listen_addr}'");
-    let mut socket_map: HashMap<SocketAddr, Arc<Mutex<ClientData>>> = HashMap::new();
+    let mut clients: Vec<Client> = Vec::with_capacity(100);
     let mut buffer = vec![0u8; 2048];
     loop {
-        send_received_datas(&socket, &mut socket_map);
-
+        send_received_datas(&socket, &mut clients);
         let Ok((len, addr)) = socket.recv_from(&mut buffer) else {
             yield_now().await;
             continue;
         };
 
-        let client_data = match socket_map.get_mut(&addr) {
-            Some(data) => data,
+        let client = match clients.iter().find(|c| c.addr == addr) {
+            Some(client) => &client,
             None => {
                 info!("new client '{addr}'");
-                setup_new_client(redirect_addr, &mut socket_map, addr).await?;
-                socket_map.get_mut(&addr).unwrap()
+                let new_client = Client::new(addr);
+                setup_new_client(&new_client, redirect_addr).await?;
+                clients.push(new_client);
+                clients.last().unwrap()
             }
         };
 
-        let mut datas = client_data.lock().unwrap();
-        datas.datas_need_to_send.push(buffer[..len].to_vec());
+        let mut datas = client.datas.lock().unwrap();
+        datas.need_to_send.push(buffer[..len].to_vec());
     }
 }
 
 #[inline]
-fn send_received_datas(
-    socket: &UdpSocket,
-    socket_map: &mut HashMap<SocketAddr, Arc<Mutex<ClientData>>>,
-) {
-    for (client_socket, datas) in socket_map.iter() {
-        let mut datas = datas.lock().unwrap();
-        if datas.datas_received.is_empty() {
+fn send_received_datas(socket: &UdpSocket, clients: &mut Vec<Client>) {
+    for client in clients.iter() {
+        let mut datas = client.datas.lock().unwrap();
+        if datas.received.is_empty() {
             continue;
         }
 
-        for data in &datas.datas_received {
-            let res = socket.send_to(&data, client_socket);
+        while let Some(data) = datas.received.pop() {
+            let res = socket.send_to(&data, client.addr);
             if let Err(e) = res {
                 warn!("couldn't send back datas received from remote: {e}");
             }
         }
-        datas.datas_received.clear();
     }
 }

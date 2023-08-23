@@ -1,5 +1,5 @@
-use std::net::SocketAddrV4;
 use clap::Parser;
+use std::net::SocketAddrV4;
 
 /// Simple program to forward udp packets
 #[derive(Parser)]
