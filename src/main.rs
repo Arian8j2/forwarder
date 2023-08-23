@@ -24,8 +24,8 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use ntest::timeout;
-    use std::{net::SocketAddr, str::FromStr, time::Duration};
-    use tokio::time::sleep;
+    use std::{net::SocketAddr, str::FromStr};
+    use tokio::task::JoinSet;
 
     #[tokio::test(flavor = "multi_thread")]
     #[timeout(4000)]
@@ -34,24 +34,32 @@ mod tests {
         let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
         tokio::spawn(run_server(server_addr, redirect_addr));
 
-        let redirect_thread = tokio::spawn(async move {
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async move {
+            // waits to receive 'salam' then it will respond with 'khobi?'
             let server = tokio::net::UdpSocket::bind(redirect_addr).await?;
             let mut buf = vec![0u8; 2048];
+            let (len, addr) = server.recv_from(&mut buf).await?;
+            assert_eq!(&buf[..len], "salam".as_bytes());
 
-            let len = server.recv(&mut buf).await?;
-            assert_eq!(buf[..len], vec![1, 2, 3, 4]);
+            server.send_to("khobi?".as_bytes(), addr).await?;
             anyhow::Ok(())
         });
 
-        tokio::spawn(async move {
-            sleep(Duration::from_millis(300)).await;
+        tasks.spawn(async move {
+            // sends 'salam' then will wait to receive 'khobi?'
             let client = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
             client.connect(server_addr).await?;
-            client.send(&vec![1, 2, 3, 4]).await?;
+            client.send("salam".as_bytes()).await?;
+
+            let mut buf = vec![0u8; 2048];
+            let len = client.recv(&mut buf).await?;
+            assert_eq!(&buf[..len], "khobi?".as_bytes());
             anyhow::Ok(())
         });
 
-        redirect_thread.await.unwrap().unwrap();
-        // client_mock_thread.await.unwrap().unwrap();
+        while let Some(task) = tasks.join_next().await {
+            task.unwrap().unwrap();
+        }
     }
 }
