@@ -1,67 +1,67 @@
+use crate::server::OwnnedData;
 use anyhow::Result;
 use log::{info, warn};
-use std::{
-    net::{SocketAddr, UdpSocket},
-    sync::{Arc, Mutex},
-};
-use tokio::task::yield_now;
+use std::net::{SocketAddr, UdpSocket};
+use tokio::sync::mpsc::{self, error::TryRecvError, Sender};
 
 pub struct Client {
-    pub addr: SocketAddr,
-    pub datas: Arc<Mutex<Data>>,
-}
-
-pub struct Data {
-    pub received: Vec<Vec<u8>>,
-    pub need_to_send: Vec<Vec<u8>>,
+    pub real_client_addr: SocketAddr,
+    socket: UdpSocket,
 }
 
 impl Client {
-    pub fn new(addr: SocketAddr) -> Self {
-        let datas = Arc::new(Mutex::new(Data {
-            received: Vec::new(),
-            need_to_send: Vec::new(),
-        }));
-        Client { addr, datas }
+    pub fn new(real_client_addr: SocketAddr) -> Result<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        socket.set_nonblocking(true)?;
+
+        info!(
+            "created client socket '{}' for handling '{}'",
+            socket.local_addr().unwrap(),
+            real_client_addr
+        );
+        Ok(Client {
+            real_client_addr,
+            socket,
+        })
     }
-}
 
-pub async fn setup_new_client(new_client: &Client, redirect_addr: SocketAddr) -> Result<()> {
-    let client_socket = UdpSocket::bind("0.0.0.0:0")?;
-    client_socket.set_nonblocking(true)?;
-    client_socket.connect(&redirect_addr)?;
-
-    info!(
-        "created client socket '{}' for handling '{}'",
-        client_socket.local_addr().unwrap(),
-        new_client.addr
-    );
-
-    tokio::spawn(client_task(client_socket, new_client.datas.clone()));
-    Ok(())
-}
-
-async fn client_task(client_socket: UdpSocket, datas: Arc<Mutex<Data>>) {
-    let mut buffer = vec![0u8; 2048];
-    loop {
-        send_datas_need_to_send(&client_socket, &datas);
-        let Ok(len) = client_socket.recv(&mut buffer) else {
-            yield_now().await;
-            continue;
-        };
-
-        let mut datas = datas.lock().unwrap();
-        datas.received.push(buffer[..len].to_vec());
+    pub fn connect(&self, redirect_addr: SocketAddr) -> Result<()> {
+        self.socket.connect(&redirect_addr)?;
+        Ok(())
     }
-}
 
-#[inline]
-fn send_datas_need_to_send(client_socket: &UdpSocket, datas: &Arc<Mutex<Data>>) {
-    let mut datas = datas.lock().unwrap();
-    while let Some(data) = datas.need_to_send.pop() {
-        let res = client_socket.send(&data);
-        if let Err(e) = res {
-            warn!("failed to send packet from remote client: {e}");
-        }
+    pub fn spawn_task(self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {
+        let (client_tx, mut client_rx) = mpsc::channel::<Vec<u8>>(512);
+        let mut buffer = vec![0u8; 2048];
+
+        tokio::spawn(async move {
+            loop {
+                match client_rx.try_recv() {
+                    Ok(data) => {
+                        if let Err(e) = self.socket.send(&data) {
+                            warn!("error when sending this: {e}");
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {
+                        let Ok(len) = self.socket.recv(&mut buffer) else {
+                            continue;
+                        };
+
+                        let data = OwnnedData {
+                            data: buffer[..len].to_vec(),
+                            target: self.real_client_addr,
+                        };
+                        if let Err(e) = server_tx.send(data).await {
+                            warn!("send to channel failed: {e}");
+                        }
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        info!("client mspc channel disconnect, FIXME");
+                    }
+                }
+            }
+        });
+
+        client_tx.clone()
     }
 }

@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use cli::Args;
 use log::LevelFilter;
-use server::run_server;
+use server::Server;
 use simple_logger::SimpleLogger;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -17,7 +17,9 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let cli = Args::parse();
-    run_server(cli.listen_addr.into(), cli.remote_addr.into()).await
+    let server = Server::bind(cli.listen_addr.into())?;
+    server.run(cli.remote_addr.into()).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -32,7 +34,11 @@ mod tests {
     async fn test_redirect_packets() {
         let redirect_addr = SocketAddr::from_str("0.0.0.0:9392").unwrap();
         let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
-        tokio::spawn(run_server(server_addr, redirect_addr));
+
+        tokio::spawn(async move {
+            let server = Server::bind(server_addr).unwrap();
+            server.run(redirect_addr).await;
+        });
 
         let mut tasks = JoinSet::new();
         tasks.spawn(async move {
