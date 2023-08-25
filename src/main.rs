@@ -1,5 +1,6 @@
 mod cli;
 mod client;
+mod macros;
 mod server;
 
 use anyhow::Result;
@@ -17,7 +18,7 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let cli = Args::parse();
-    let server = Server::bind(cli.listen_addr.into())?;
+    let server = Server::bind(cli.listen_addr.into()).await?;
     server.run(cli.remote_addr.into()).await;
     Ok(())
 }
@@ -36,7 +37,7 @@ mod tests {
         let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
 
         tokio::spawn(async move {
-            let server = Server::bind(server_addr).unwrap();
+            let server = Server::bind(server_addr).await.unwrap();
             server.run(redirect_addr).await;
         });
 
