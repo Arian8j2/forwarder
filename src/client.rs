@@ -1,6 +1,6 @@
-use crate::{macros::loop_select, server::OwnnedData};
+use crate::{encryption, macros::loop_select, server::OwnnedData};
 use anyhow::Result;
-use log::{info, warn};
+use log::info;
 use std::net::SocketAddr;
 use tokio::{
     net::UdpSocket,
@@ -12,6 +12,7 @@ const MAX_CLIENT_QUEUE_SIZE: usize = 512;
 pub struct Client {
     pub real_client_addr: SocketAddr,
     socket: UdpSocket,
+    passphrase: Option<String>,
 }
 
 impl Client {
@@ -26,11 +27,17 @@ impl Client {
         Ok(Client {
             real_client_addr,
             socket,
+            passphrase: None,
         })
     }
 
-    pub async fn connect(&self, redirect_addr: SocketAddr) -> Result<()> {
+    pub async fn connect(
+        &mut self,
+        redirect_addr: SocketAddr,
+        passphrase: Option<String>,
+    ) -> Result<()> {
         self.socket.connect(&redirect_addr).await?;
+        self.passphrase = passphrase;
         Ok(())
     }
 
@@ -56,6 +63,12 @@ impl Client {
         match datas_need_to_send {
             None => panic!("client channel has been closed FIXME"),
             Some(data) => {
+                //                               e                                  d
+                // client -> (f1 server ---> f1 client) ------> (f2 server ---> f2 client) -> wireguard
+                let data = match &self.passphrase {
+                    Some(passphrase) => encryption::xor_small_chunk(data, &passphrase),
+                    None => data,
+                };
                 self.socket.send(&data).await.ok();
             }
         }
@@ -63,13 +76,18 @@ impl Client {
 
     #[inline]
     async fn handle_incomming_packets(&self, data: Vec<u8>, server_tx: Sender<OwnnedData>) {
+        //                               d      network                      e
+        // client <- (f1 server <--- f1 client) <------ (f2 server <--- f2 client) <- wireguard
+        let data = match &self.passphrase {
+            Some(passphrase) => encryption::xor_small_chunk(data, &passphrase),
+            None => data,
+        };
+
         let ownned_data = OwnnedData {
             data,
             target: self.real_client_addr,
         };
 
-        if let Err(e) = server_tx.send(ownned_data).await {
-            warn!("send to channel failed: {e}");
-        }
+        server_tx.send(ownned_data).await.ok();
     }
 }

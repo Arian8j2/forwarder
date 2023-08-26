@@ -1,5 +1,6 @@
 mod cli;
 mod client;
+mod encryption;
 mod macros;
 mod server;
 
@@ -18,7 +19,11 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let cli = Args::parse();
-    let server = Server::bind(cli.listen_addr.into()).await?;
+
+    let mut server = Server::bind(cli.listen_addr.into()).await?;
+    if let Some(passphrase) = cli.passphrase {
+        server.set_passphrase(&passphrase);
+    }
     server.run(cli.remote_addr.into()).await;
     Ok(())
 }
@@ -35,9 +40,17 @@ mod tests {
     async fn test_redirect_packets() {
         let redirect_addr = SocketAddr::from_str("0.0.0.0:9392").unwrap();
         let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
+        let second_forwarder_addr = SocketAddr::from_str("0.0.0.0:2392").unwrap();
 
         tokio::spawn(async move {
-            let server = Server::bind(server_addr).await.unwrap();
+            let mut server = Server::bind(server_addr).await.unwrap();
+            server.set_passphrase("password");
+            server.run(second_forwarder_addr).await;
+        });
+
+        tokio::spawn(async move {
+            let mut server = Server::bind(second_forwarder_addr).await.unwrap();
+            server.set_passphrase("password");
             server.run(redirect_addr).await;
         });
 

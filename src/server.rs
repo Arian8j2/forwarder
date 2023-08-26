@@ -1,6 +1,6 @@
 use crate::{client::Client, macros::loop_select};
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::{error, info, warn};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -23,6 +23,7 @@ pub struct Server {
     send_to_real_client_tx: Sender<OwnnedData>,
     send_to_real_client_rx: Receiver<OwnnedData>,
     clients: Vec<ReceiverClient>,
+    passphrase: Option<String>,
 }
 
 impl Server {
@@ -39,7 +40,12 @@ impl Server {
             send_to_real_client_tx: tx,
             send_to_real_client_rx: rx,
             clients,
+            passphrase: None,
         })
+    }
+
+    pub fn set_passphrase(&mut self, passphrase: &str) {
+        self.passphrase = Some(passphrase.to_string());
     }
 
     pub async fn run(mut self, redirect_addr: SocketAddr) {
@@ -49,7 +55,7 @@ impl Server {
             data_need_to_send = self.send_to_real_client_rx.recv() => {
                 match data_need_to_send {
                     None => {
-                        warn!("server mpsc channel got disconnected");
+                        error!("server mpsc channel got disconnected");
                         break;
                     },
                     Some(ownned_data) => self.send_data_to(&ownned_data.data, ownned_data.target).await
@@ -82,7 +88,7 @@ impl Server {
             Some(client) => &client.tx,
             None => {
                 info!("new client '{from_addr}'");
-                let Ok(new_client) = prepare_new_client(from_addr, redirect_addr).await else {
+                let Ok(new_client) = prepare_new_client(from_addr, redirect_addr, &self.passphrase).await else {
                     warn!("cannot prepare new client '{from_addr}'");
                     return;
                 };
@@ -106,8 +112,11 @@ impl Server {
 async fn prepare_new_client(
     real_client_addr: SocketAddr,
     redirect_addr: SocketAddr,
+    passphrase: &Option<String>,
 ) -> Result<Client> {
-    let new_client = Client::new(real_client_addr).await?;
-    new_client.connect(redirect_addr).await?;
+    let mut new_client = Client::new(real_client_addr).await?;
+    new_client
+        .connect(redirect_addr, passphrase.clone())
+        .await?;
     Ok(new_client)
 }
