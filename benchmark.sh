@@ -3,17 +3,14 @@
 set -e
 
 cargo b --release
-./target/release/forwarder -l 127.0.0.1:3536 -r 127.0.0.1:8080 &
-forwarder_pid=$!
+taskset --cpu-list 0,1 ./target/release/forwarder -l 127.0.0.1:3536 -r 127.0.0.1:4546 &
+taskset --cpu-list 0,1 ./target/release/forwarder -l 127.0.0.1:4546 -r 127.0.0.1:3939 &
 
-nice -n 15 bash -c "while true; do sleep 1 && export cpu_usage=\$(ps -ef -o pid,pcpu | grep $forwarder_pid | awk '{print \$2}') && echo \"------> cpu usage forwarder: \$cpu_usage\"; done" &
-cpu_usage_reporter_pid=$!
-
-goben &
-goben_sv_pid=$!
+# we use old iperf because it can run UDP server
+iperf -s -p 3939 -u &
+iperf_server=$!
 
 sleep 1
-goben -hosts 127.0.0.1:3536 -udp
+iperf -c 127.0.0.1 -p 3536 -u -b 10G -i 1 -e
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
-# trap "kill -9 $goben_sv_pid $forwarder_pid $cpu_usage_reporter_pid" SIGINT SIGTERM EXIT
