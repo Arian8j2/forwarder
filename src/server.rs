@@ -1,11 +1,11 @@
 use crate::{client::Client, macros::loop_select};
 use anyhow::{Context, Result};
-use log::{error, info, warn};
+use log::{info, warn};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
-const MAX_SERVER_QUEUE_SIZE: usize = 1024;
+const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
 const CLIENTS_BASE_CAPACITY: usize = 100;
 
 pub struct OwnnedData {
@@ -20,8 +20,12 @@ struct ReceiverClient {
 
 pub struct Server {
     socket: UdpSocket,
+    // each `Client` gets a clone of this so they can send data to server
     send_to_real_client_tx: Sender<OwnnedData>,
+    // receive data that needs to sent back to real client
     send_to_real_client_rx: Receiver<OwnnedData>,
+    // using vector instead of hashmap because there is a few clients
+    // maybe around 50 or lower so finding in vector is faster
     clients: Vec<ReceiverClient>,
     passphrase: Option<String>,
 }
@@ -33,7 +37,7 @@ impl Server {
             .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
         info!("listen on '{listen_addr}'");
 
-        let (tx, rx) = mpsc::channel::<OwnnedData>(MAX_SERVER_QUEUE_SIZE);
+        let (tx, rx) = mpsc::channel::<OwnnedData>(MAX_SERVER_CHANNEL_QUEUE_SIZE);
         let clients: Vec<ReceiverClient> = Vec::with_capacity(CLIENTS_BASE_CAPACITY);
         Ok(Self {
             socket,
@@ -52,15 +56,14 @@ impl Server {
         let mut buffer = vec![0u8; 2048];
 
         loop_select! {
+            // receive data from `Client` and send them back to real client
             data_need_to_send = self.send_to_real_client_rx.recv() => {
-                match data_need_to_send {
-                    None => {
-                        error!("server mpsc channel got disconnected");
-                        break;
-                    },
-                    Some(ownned_data) => self.send_data_to(&ownned_data.data, ownned_data.target).await
-                }
+                let Some(ownned_data) = data_need_to_send else {
+                    panic!("server mpsc channel got disconnected");
+                };
+                self.send_data_to(&ownned_data.data, ownned_data.target).await
             },
+            // receive data from real client and transfer it to `Client`
             Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
                 let data = buffer[..len].to_vec();
                 self.handle_incomming_packet(from_addr, data, redirect_addr)
@@ -77,6 +80,7 @@ impl Server {
         }
     }
 
+    /// transfers packets to `Client` via channel
     #[inline]
     async fn handle_incomming_packet(
         &mut self,
@@ -88,7 +92,9 @@ impl Server {
             Some(client) => &client.tx,
             None => {
                 info!("new client '{from_addr}'");
-                let Ok(new_client) = prepare_new_client(from_addr, redirect_addr, &self.passphrase).await else {
+                let Ok(new_client) =
+                    prepare_new_client(from_addr, redirect_addr, &self.passphrase).await
+                else {
                     warn!("cannot prepare new client '{from_addr}'");
                     return;
                 };

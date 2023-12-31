@@ -11,6 +11,10 @@ pub struct Args {
     #[arg(short, long)]
     pub remote_addr: SocketAddrV4,
 
-    #[arg(short, long, help = "The packets will get encrypted/decrypted by this passphrase")]
-    pub passphrase: Option<String>
+    #[arg(
+        short,
+        long,
+        help = "The packets will get encrypted/decrypted by this passphrase"
+    )]
+    pub passphrase: Option<String>,
 }
