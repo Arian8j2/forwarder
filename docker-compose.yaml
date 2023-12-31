@@ -1,0 +1,14 @@
+version: "3.4"
+
+services:
+  forwarder:
+    image: forwarder
+    container_name: forwarder
+    environment:
+      - LISTEN_ADDR=0.0.0.0:1001
+      - REDIRECT_ADDR=x.x.x.x:8001
+      - PASSPHRADE=some_password
+    ports:
+      - 1001:1001/udp
+    restart: unless-stopped
+
