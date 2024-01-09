@@ -11,6 +11,6 @@ iperf -s -p 3939 -u &
 iperf_server=$!
 
 sleep 1
-iperf -c 127.0.0.1 -p 3536 -u -b 10G -i 1 -e
+iperf -c 127.0.0.1 -p 3536 -u -b 1G -i 1 -e
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
