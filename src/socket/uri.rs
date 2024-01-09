@@ -1,16 +1,16 @@
-use super::SocketVariant;
+use super::SocketProtocol;
 use std::{net::SocketAddrV4, str::FromStr};
 
 #[derive(Clone, Copy, Debug)]
 pub struct SocketUri {
     pub addr: SocketAddrV4,
-    pub variant: SocketVariant,
+    pub protocol: SocketProtocol,
 }
 
 #[allow(unused)]
 impl SocketUri {
-    pub fn new(addr: SocketAddrV4, variant: SocketVariant) -> Self {
-        SocketUri { addr, variant }
+    pub fn new(addr: SocketAddrV4, protocol: SocketProtocol) -> Self {
+        SocketUri { addr, protocol }
     }
 }
 
@@ -30,11 +30,11 @@ impl FromStr for SocketUri {
             .ok_or("Uri need to have address part like '127.0.0.1'")?;
         let addr = SocketAddrV4::from_str(&addr_str).map_err(|e| e.to_string())?;
 
-        let variant = match parts.get(1) {
-            Some(variant_str) => SocketVariant::from_str(variant_str)?,
-            None => SocketVariant::Udp,
+        let protocol = match parts.get(1) {
+            Some(protocol_str) => SocketProtocol::from_str(protocol_str)?,
+            None => SocketProtocol::Udp,
         };
-        Ok(SocketUri { addr, variant })
+        Ok(SocketUri { addr, protocol })
     }
 }
 
@@ -51,7 +51,7 @@ mod tests {
             uri.addr,
             SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8000)
         );
-        assert_eq!(uri.variant, SocketVariant::Udp);
+        assert_eq!(uri.protocol, SocketProtocol::Udp);
     }
 
     #[test]

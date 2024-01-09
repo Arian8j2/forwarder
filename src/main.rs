@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::socket::{SocketUri, SocketVariant};
+    use crate::socket::{SocketProtocol, SocketUri};
     use ntest::timeout;
     use std::{net::SocketAddrV4, str::FromStr};
     use tokio::task::JoinSet;
@@ -45,20 +45,20 @@ mod tests {
         let second_forwarder_addr = SocketAddrV4::from_str("0.0.0.0:2392").unwrap();
 
         tokio::spawn(async move {
-            let server_uri = SocketUri::new(server_addr.clone(), SocketVariant::Udp);
+            let server_uri = SocketUri::new(server_addr.clone(), SocketProtocol::Udp);
             let mut server = Server::new(server_uri).await.unwrap();
             server.set_passphrase("password");
             server
-                .run(SocketUri::new(second_forwarder_addr, SocketVariant::Udp))
+                .run(SocketUri::new(second_forwarder_addr, SocketProtocol::Udp))
                 .await;
         });
 
         tokio::spawn(async move {
-            let server_uri = SocketUri::new(second_forwarder_addr.clone(), SocketVariant::Udp);
+            let server_uri = SocketUri::new(second_forwarder_addr.clone(), SocketProtocol::Udp);
             let mut server = Server::new(server_uri).await.unwrap();
             server.set_passphrase("password");
             server
-                .run(SocketUri::new(redirect_addr, SocketVariant::Udp))
+                .run(SocketUri::new(redirect_addr, SocketProtocol::Udp))
                 .await;
         });
 

@@ -2,7 +2,7 @@ use crate::{
     encryption,
     macros::loop_select,
     server::OwnnedData,
-    socket::{Socket, SocketVariant},
+    socket::{Socket, SocketProtocol},
 };
 use anyhow::Result;
 use std::net::SocketAddrV4;
@@ -18,11 +18,11 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        socket_variant: SocketVariant,
+        socket_protocol: SocketProtocol,
         real_client_addr: SocketAddrV4,
     ) -> Result<Self> {
         let addr: SocketAddrV4 = "0.0.0.0:0".parse()?;
-        let socket = socket_variant.bind(&addr).await?;
+        let socket = socket_protocol.bind(&addr).await?;
 
         // TODO: add some log message similar to this
         // info!(

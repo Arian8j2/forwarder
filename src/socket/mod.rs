@@ -14,26 +14,26 @@ mod udp;
 pub(crate) use udp::UdpSocket;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum SocketVariant {
+pub enum SocketProtocol {
     Udp,
 }
 
-impl SocketVariant {
+impl SocketProtocol {
     pub async fn bind(self, addr: &SocketAddrV4) -> Result<Box<dyn Socket>> {
         let socket: Box<dyn Socket> = match self {
-            SocketVariant::Udp => Box::new(UdpSocket::bind(addr).await?),
+            SocketProtocol::Udp => Box::new(UdpSocket::bind(addr).await?),
         };
         Ok(socket)
     }
 }
 
-impl FromStr for SocketVariant {
+impl FromStr for SocketProtocol {
     type Err = &'static str;
 
     fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "udp" => Ok(SocketVariant::Udp),
-            _ => Err("Invalid socket variant name, valid socket variants are: 'udp'"),
+            "udp" => Ok(SocketProtocol::Udp),
+            _ => Err("Invalid socket protocl name, valid socket protocols are: 'udp'"),
         }
     }
 }

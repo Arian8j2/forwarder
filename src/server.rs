@@ -34,7 +34,7 @@ impl Server {
     pub async fn new(uri: SocketUri) -> Result<Self> {
         let listen_addr = &uri.addr;
         let socket = uri
-            .variant
+            .protocol
             .bind(&uri.addr)
             .await
             .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
@@ -124,7 +124,7 @@ impl Server {
         redirect_uri: &SocketUri,
         passphrase: &Option<String>,
     ) -> Result<Client> {
-        let mut new_client = Client::new(redirect_uri.variant, real_client_addr).await?;
+        let mut new_client = Client::new(redirect_uri.protocol, real_client_addr).await?;
         new_client
             .connect(redirect_uri.addr, passphrase.clone())
             .await?;
