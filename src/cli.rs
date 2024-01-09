@@ -1,15 +1,15 @@
+use crate::socket::SocketUri;
 use clap::Parser;
-use std::net::SocketAddrV4;
 
 /// Simple program to forward udp packets
 #[derive(Parser)]
 #[command(about)]
 pub struct Args {
     #[arg(short, long)]
-    pub listen_addr: SocketAddrV4,
+    pub listen_addr: SocketUri,
 
     #[arg(short, long)]
-    pub remote_addr: SocketAddrV4,
+    pub remote_addr: SocketUri,
 
     #[arg(
         short,

@@ -1,4 +1,4 @@
-use crate::socket::{Socket, SocketVariant};
+use crate::socket::{Socket, SocketUri};
 use crate::{client::Client, macros::loop_select};
 use anyhow::{Context, Result};
 use log::{info, warn};
@@ -31,12 +31,11 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(
-        listen_socket_variant: SocketVariant,
-        listen_addr: &SocketAddrV4,
-    ) -> Result<Self> {
-        let socket = listen_socket_variant
-            .bind(&listen_addr)
+    pub async fn new(uri: SocketUri) -> Result<Self> {
+        let listen_addr = &uri.addr;
+        let socket = uri
+            .variant
+            .bind(&uri.addr)
             .await
             .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
         info!("listen on '{listen_addr}'");
@@ -56,11 +55,7 @@ impl Server {
         self.passphrase = Some(passphrase.to_string());
     }
 
-    pub async fn run(
-        mut self,
-        redirect_addr: SocketAddrV4,
-        redirect_socket_variant: SocketVariant,
-    ) {
+    pub async fn run(mut self, redirect_uri: SocketUri) {
         let mut buffer = vec![0u8; 2048];
 
         loop_select! {
@@ -74,7 +69,7 @@ impl Server {
             // receive data from real client and transfer it to `Client`
             Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
                 let data = buffer[..len].to_vec();
-                self.handle_incomming_packet(from_addr, data, &redirect_socket_variant, redirect_addr)
+                self.handle_incomming_packet(from_addr, data, &redirect_uri)
                     .await;
             }
         }
@@ -94,20 +89,14 @@ impl Server {
         &mut self,
         from_addr: SocketAddrV4,
         data: Vec<u8>,
-        redirect_socket_variant: &SocketVariant,
-        redirect_addr: SocketAddrV4,
+        redirect_uri: &SocketUri,
     ) {
         let client_tx = match self.clients.iter().find(|c| c.addr == from_addr) {
             Some(client) => &client.tx,
             None => {
                 info!("new client '{from_addr}'");
                 let Ok(new_client) = self
-                    .prepare_new_client(
-                        from_addr,
-                        redirect_socket_variant.to_owned(),
-                        redirect_addr,
-                        &self.passphrase,
-                    )
+                    .prepare_new_client(from_addr, redirect_uri, &self.passphrase)
                     .await
                 else {
                     warn!("cannot prepare new client '{from_addr}'");
@@ -132,13 +121,12 @@ impl Server {
     async fn prepare_new_client(
         &self,
         real_client_addr: SocketAddrV4,
-        redirect_socket_variant: SocketVariant,
-        redirect_addr: SocketAddrV4,
+        redirect_uri: &SocketUri,
         passphrase: &Option<String>,
     ) -> Result<Client> {
-        let mut new_client = Client::new(redirect_socket_variant, real_client_addr).await?;
+        let mut new_client = Client::new(redirect_uri.variant, real_client_addr).await?;
         new_client
-            .connect(redirect_addr, passphrase.clone())
+            .connect(redirect_uri.addr, passphrase.clone())
             .await?;
         Ok(new_client)
     }

@@ -11,7 +11,6 @@ use cli::Args;
 use log::LevelFilter;
 use server::Server;
 use simple_logger::SimpleLogger;
-use socket::SocketVariant;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -21,19 +20,19 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let cli = Args::parse();
-
-    let listen_addr = cli.listen_addr;
-    let mut server = Server::new(SocketVariant::Udp, &listen_addr).await?;
+    let mut server = Server::new(cli.listen_addr).await?;
     if let Some(passphrase) = cli.passphrase {
         server.set_passphrase(&passphrase);
     }
-    server.run(cli.remote_addr.into(), SocketVariant::Udp).await;
+
+    server.run(cli.remote_addr).await;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::socket::{SocketUri, SocketVariant};
     use ntest::timeout;
     use std::{net::SocketAddrV4, str::FromStr};
     use tokio::task::JoinSet;
@@ -46,17 +45,21 @@ mod tests {
         let second_forwarder_addr = SocketAddrV4::from_str("0.0.0.0:2392").unwrap();
 
         tokio::spawn(async move {
-            let mut server = Server::new(SocketVariant::Udp, &server_addr).await.unwrap();
+            let server_uri = SocketUri::new(server_addr.clone(), SocketVariant::Udp);
+            let mut server = Server::new(server_uri).await.unwrap();
             server.set_passphrase("password");
-            server.run(second_forwarder_addr, SocketVariant::Udp).await;
+            server
+                .run(SocketUri::new(second_forwarder_addr, SocketVariant::Udp))
+                .await;
         });
 
         tokio::spawn(async move {
-            let mut server = Server::new(SocketVariant::Udp, &second_forwarder_addr)
-                .await
-                .unwrap();
+            let server_uri = SocketUri::new(second_forwarder_addr.clone(), SocketVariant::Udp);
+            let mut server = Server::new(server_uri).await.unwrap();
             server.set_passphrase("password");
-            server.run(redirect_addr, SocketVariant::Udp).await;
+            server
+                .run(SocketUri::new(redirect_addr, SocketVariant::Udp))
+                .await;
         });
 
         let mut tasks = JoinSet::new();

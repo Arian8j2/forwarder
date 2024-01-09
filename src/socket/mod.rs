@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::{io::Result, net::SocketAddrV4};
+use std::{io::Result, net::SocketAddrV4, str::FromStr};
 
 #[async_trait]
 pub trait Socket: Send + Sync {
@@ -13,7 +13,7 @@ pub trait Socket: Send + Sync {
 mod udp;
 pub(crate) use udp::UdpSocket;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SocketVariant {
     Udp,
 }
@@ -26,3 +26,17 @@ impl SocketVariant {
         Ok(socket)
     }
 }
+
+impl FromStr for SocketVariant {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::prelude::v1::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "udp" => Ok(SocketVariant::Udp),
+            _ => Err("Invalid socket variant name, valid socket variants are: 'udp'"),
+        }
+    }
+}
+
+mod uri;
+pub(crate) use uri::SocketUri;
