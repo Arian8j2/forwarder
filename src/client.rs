@@ -1,29 +1,36 @@
-use crate::{encryption, macros::loop_select, server::OwnnedData};
-use anyhow::Result;
-use log::info;
-use std::net::SocketAddr;
-use tokio::{
-    net::UdpSocket,
-    sync::mpsc::{self, Sender},
+use crate::{
+    encryption,
+    macros::loop_select,
+    server::OwnnedData,
+    socket::{Socket, SocketVariant},
 };
+use anyhow::Result;
+use std::net::SocketAddrV4;
+use tokio::sync::mpsc::{self, Sender};
 
 const MAX_CLIENT_CHANNEL_QUEUE_SIZE: usize = 512;
 
 pub struct Client {
-    pub real_client_addr: SocketAddr,
-    socket: UdpSocket,
+    pub real_client_addr: SocketAddrV4,
+    socket: Box<dyn Socket>,
     passphrase: Option<String>,
 }
 
 impl Client {
-    pub async fn new(real_client_addr: SocketAddr) -> Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+    pub async fn new(
+        socket_variant: SocketVariant,
+        real_client_addr: SocketAddrV4,
+    ) -> Result<Self> {
+        let addr: SocketAddrV4 = "0.0.0.0:0".parse()?;
+        let socket = socket_variant.bind(&addr).await?;
 
-        info!(
-            "created client socket '{}' for handling '{}'",
-            socket.local_addr().unwrap(),
-            real_client_addr
-        );
+        // TODO: add some log message similar to this
+        // info!(
+        //     "created client socket '{}' for handling '{}'",
+        //     socket.local_addr().unwrap(),
+        //     real_client_addr
+        // );
+
         Ok(Client {
             real_client_addr,
             socket,
@@ -33,7 +40,7 @@ impl Client {
 
     pub async fn connect(
         &mut self,
-        redirect_addr: SocketAddr,
+        redirect_addr: SocketAddrV4,
         passphrase: Option<String>,
     ) -> Result<()> {
         self.socket.connect(&redirect_addr).await?;

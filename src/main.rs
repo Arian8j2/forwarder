@@ -3,6 +3,7 @@ mod client;
 mod encryption;
 mod macros;
 mod server;
+mod socket;
 
 use anyhow::Result;
 use clap::Parser;
@@ -10,6 +11,7 @@ use cli::Args;
 use log::LevelFilter;
 use server::Server;
 use simple_logger::SimpleLogger;
+use socket::SocketVariant;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -20,11 +22,12 @@ async fn main() -> Result<()> {
 
     let cli = Args::parse();
 
-    let mut server = Server::bind(cli.listen_addr.into()).await?;
+    let listen_addr = cli.listen_addr;
+    let mut server = Server::new(SocketVariant::Udp, &listen_addr).await?;
     if let Some(passphrase) = cli.passphrase {
         server.set_passphrase(&passphrase);
     }
-    server.run(cli.remote_addr.into()).await;
+    server.run(cli.remote_addr.into(), SocketVariant::Udp).await;
     Ok(())
 }
 
@@ -32,26 +35,28 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use ntest::timeout;
-    use std::{net::SocketAddr, str::FromStr};
+    use std::{net::SocketAddrV4, str::FromStr};
     use tokio::task::JoinSet;
 
     #[tokio::test(flavor = "multi_thread")]
     #[timeout(4000)]
     async fn test_redirect_packets() {
-        let redirect_addr = SocketAddr::from_str("0.0.0.0:9392").unwrap();
-        let server_addr = SocketAddr::from_str("0.0.0.0:2292").unwrap();
-        let second_forwarder_addr = SocketAddr::from_str("0.0.0.0:2392").unwrap();
+        let redirect_addr = SocketAddrV4::from_str("0.0.0.0:9392").unwrap();
+        let server_addr = SocketAddrV4::from_str("0.0.0.0:2292").unwrap();
+        let second_forwarder_addr = SocketAddrV4::from_str("0.0.0.0:2392").unwrap();
 
         tokio::spawn(async move {
-            let mut server = Server::bind(server_addr).await.unwrap();
+            let mut server = Server::new(SocketVariant::Udp, &server_addr).await.unwrap();
             server.set_passphrase("password");
-            server.run(second_forwarder_addr).await;
+            server.run(second_forwarder_addr, SocketVariant::Udp).await;
         });
 
         tokio::spawn(async move {
-            let mut server = Server::bind(second_forwarder_addr).await.unwrap();
+            let mut server = Server::new(SocketVariant::Udp, &second_forwarder_addr)
+                .await
+                .unwrap();
             server.set_passphrase("password");
-            server.run(redirect_addr).await;
+            server.run(redirect_addr, SocketVariant::Udp).await;
         });
 
         let mut tasks = JoinSet::new();

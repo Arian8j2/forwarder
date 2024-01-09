@@ -1,8 +1,8 @@
+use crate::socket::{Socket, SocketVariant};
 use crate::{client::Client, macros::loop_select};
 use anyhow::{Context, Result};
 use log::{info, warn};
-use std::net::SocketAddr;
-use tokio::net::UdpSocket;
+use std::net::SocketAddrV4;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
@@ -10,16 +10,16 @@ const CLIENTS_BASE_CAPACITY: usize = 100;
 
 pub struct OwnnedData {
     pub data: Vec<u8>,
-    pub target: SocketAddr,
+    pub target: SocketAddrV4,
 }
 
 struct ReceiverClient {
-    addr: SocketAddr,
+    addr: SocketAddrV4,
     tx: Sender<Vec<u8>>,
 }
 
 pub struct Server {
-    socket: UdpSocket,
+    socket: Box<dyn Socket>,
     // each `Client` gets a clone of this so they can send data to server
     send_to_real_client_tx: Sender<OwnnedData>,
     // receive data that needs to sent back to real client
@@ -31,8 +31,12 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn bind(listen_addr: SocketAddr) -> Result<Self> {
-        let socket = UdpSocket::bind(listen_addr)
+    pub async fn new(
+        listen_socket_variant: SocketVariant,
+        listen_addr: &SocketAddrV4,
+    ) -> Result<Self> {
+        let socket = listen_socket_variant
+            .bind(&listen_addr)
             .await
             .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
         info!("listen on '{listen_addr}'");
@@ -52,7 +56,11 @@ impl Server {
         self.passphrase = Some(passphrase.to_string());
     }
 
-    pub async fn run(mut self, redirect_addr: SocketAddr) {
+    pub async fn run(
+        mut self,
+        redirect_addr: SocketAddrV4,
+        redirect_socket_variant: SocketVariant,
+    ) {
         let mut buffer = vec![0u8; 2048];
 
         loop_select! {
@@ -66,15 +74,15 @@ impl Server {
             // receive data from real client and transfer it to `Client`
             Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
                 let data = buffer[..len].to_vec();
-                self.handle_incomming_packet(from_addr, data, redirect_addr)
+                self.handle_incomming_packet(from_addr, data, &redirect_socket_variant, redirect_addr)
                     .await;
             }
         }
     }
 
     #[inline]
-    async fn send_data_to(&self, data: &Vec<u8>, target: SocketAddr) {
-        let res = self.socket.send_to(&data, target).await;
+    async fn send_data_to(&self, data: &Vec<u8>, target: SocketAddrV4) {
+        let res = self.socket.send_to(&data, &target).await;
         if let Err(e) = res {
             warn!("couldn't send back datas received from remote: {e}");
         }
@@ -84,16 +92,23 @@ impl Server {
     #[inline]
     async fn handle_incomming_packet(
         &mut self,
-        from_addr: SocketAddr,
+        from_addr: SocketAddrV4,
         data: Vec<u8>,
-        redirect_addr: SocketAddr,
+        redirect_socket_variant: &SocketVariant,
+        redirect_addr: SocketAddrV4,
     ) {
         let client_tx = match self.clients.iter().find(|c| c.addr == from_addr) {
             Some(client) => &client.tx,
             None => {
                 info!("new client '{from_addr}'");
-                let Ok(new_client) =
-                    prepare_new_client(from_addr, redirect_addr, &self.passphrase).await
+                let Ok(new_client) = self
+                    .prepare_new_client(
+                        from_addr,
+                        redirect_socket_variant.to_owned(),
+                        redirect_addr,
+                        &self.passphrase,
+                    )
+                    .await
                 else {
                     warn!("cannot prepare new client '{from_addr}'");
                     return;
@@ -113,16 +128,18 @@ impl Server {
             warn!("cannot send datas from server to client via channel: {e}");
         }
     }
-}
 
-async fn prepare_new_client(
-    real_client_addr: SocketAddr,
-    redirect_addr: SocketAddr,
-    passphrase: &Option<String>,
-) -> Result<Client> {
-    let mut new_client = Client::new(real_client_addr).await?;
-    new_client
-        .connect(redirect_addr, passphrase.clone())
-        .await?;
-    Ok(new_client)
+    async fn prepare_new_client(
+        &self,
+        real_client_addr: SocketAddrV4,
+        redirect_socket_variant: SocketVariant,
+        redirect_addr: SocketAddrV4,
+        passphrase: &Option<String>,
+    ) -> Result<Client> {
+        let mut new_client = Client::new(redirect_socket_variant, real_client_addr).await?;
+        new_client
+            .connect(redirect_addr, passphrase.clone())
+            .await?;
+        Ok(new_client)
+    }
 }
