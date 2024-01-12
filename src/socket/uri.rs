@@ -38,6 +38,14 @@ impl FromStr for SocketUri {
     }
 }
 
+impl TryFrom<&str> for SocketUri {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::from_str(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

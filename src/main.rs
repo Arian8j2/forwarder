@@ -32,57 +32,100 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::socket::{SocketProtocol, SocketUri};
+    use crate::socket::SocketUri;
     use ntest::timeout;
     use std::{net::SocketAddrV4, str::FromStr};
     use tokio::task::JoinSet;
 
     #[tokio::test(flavor = "multi_thread")]
-    #[timeout(4000)]
-    async fn test_redirect_packets() {
-        let redirect_addr = SocketAddrV4::from_str("0.0.0.0:9392").unwrap();
-        let server_addr = SocketAddrV4::from_str("0.0.0.0:2292").unwrap();
-        let second_forwarder_addr = SocketAddrV4::from_str("0.0.0.0:2392").unwrap();
+    #[timeout(1000)]
+    async fn test_redirect_packets_via_udp() {
+        // real client ---udp--> f1 ---udp--> f2 ----udp---> real server
+        spawn_forwarder_task(
+            "127.0.0.1:10001/udp".try_into().unwrap(),
+            "127.0.0.1:30001/udp".try_into().unwrap(),
+            Some("password".to_owned()),
+        )
+        .await;
 
+        spawn_forwarder_task(
+            "127.0.0.1:30001/udp".try_into().unwrap(),
+            "127.0.0.1:3939/udp".try_into().unwrap(),
+            Some("password".to_owned()),
+        )
+        .await;
+
+        let real_server_addr = SocketAddrV4::from_str("127.0.0.1:3939").unwrap();
+        let connect_to = SocketAddrV4::from_str("127.0.0.1:10001").unwrap();
+        test_udp_handshake(connect_to, real_server_addr).await;
+    }
+
+    #[ignore = "requires root access, beacuse it has to deal with raw socket"]
+    #[tokio::test(flavor = "multi_thread")]
+    #[timeout(1000)]
+    async fn test_redirect_packets_via_icmp() {
+        // real client ---udp--> f1 ---icmp----> f2 ----udp---> real server
+        spawn_forwarder_task(
+            "127.0.0.1:10002/udp".try_into().unwrap(),
+            "127.0.0.1:30002/icmp".try_into().unwrap(),
+            Some("password".to_owned()),
+        )
+        .await;
+
+        spawn_forwarder_task(
+            "127.0.0.1:30002/icmp".try_into().unwrap(),
+            "127.0.0.1:4040/udp".try_into().unwrap(),
+            Some("password".to_owned()),
+        )
+        .await;
+
+        let real_server_addr = SocketAddrV4::from_str("127.0.0.1:4040").unwrap();
+        let connect_to = SocketAddrV4::from_str("127.0.0.1:10002").unwrap();
+        test_udp_handshake(connect_to, real_server_addr).await;
+    }
+
+    async fn spawn_forwarder_task(
+        listen_uri: SocketUri,
+        redirect_uri: SocketUri,
+        password: Option<String>,
+    ) {
         tokio::spawn(async move {
-            let server_uri = SocketUri::new(server_addr.clone(), SocketProtocol::Udp);
+            let server_uri = SocketUri::new(listen_uri.addr, listen_uri.protocol);
             let mut server = Server::new(server_uri).await.unwrap();
-            server.set_passphrase("password");
+
+            if let Some(pass) = password {
+                server.set_passphrase(&pass);
+            }
+
             server
-                .run(SocketUri::new(second_forwarder_addr, SocketProtocol::Udp))
+                .run(SocketUri::new(redirect_uri.addr, redirect_uri.protocol))
                 .await;
         });
+    }
 
-        tokio::spawn(async move {
-            let server_uri = SocketUri::new(second_forwarder_addr.clone(), SocketProtocol::Udp);
-            let mut server = Server::new(server_uri).await.unwrap();
-            server.set_passphrase("password");
-            server
-                .run(SocketUri::new(redirect_addr, SocketProtocol::Udp))
-                .await;
-        });
+    async fn test_udp_handshake(connect_to: SocketAddrV4, server_addr: SocketAddrV4) {
+        use tokio::net::UdpSocket;
 
         let mut tasks = JoinSet::new();
         tasks.spawn(async move {
-            // waits to receive 'salam' then it will respond with 'khobi?'
-            let server = tokio::net::UdpSocket::bind(redirect_addr).await?;
+            let server = UdpSocket::bind(server_addr).await?;
             let mut buf = vec![0u8; 2048];
             let (len, addr) = server.recv_from(&mut buf).await?;
-            assert_eq!(&buf[..len], "salam".as_bytes());
+            assert_eq!(&buf[..len], "syn".as_bytes());
 
-            server.send_to("khobi?".as_bytes(), addr).await?;
+            server.send_to("ack".as_bytes(), addr).await?;
             anyhow::Ok(())
         });
 
         tasks.spawn(async move {
-            // sends 'salam' then will wait to receive 'khobi?'
-            let client = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
-            client.connect(server_addr).await?;
-            client.send("salam".as_bytes()).await?;
+            let client_addr = SocketAddrV4::from_str("127.0.0.1:0").unwrap();
+            let client = UdpSocket::bind(client_addr).await?;
+            client.connect(connect_to).await?;
+            client.send("syn".as_bytes()).await?;
 
             let mut buf = vec![0u8; 2048];
             let len = client.recv(&mut buf).await?;
-            assert_eq!(&buf[..len], "khobi?".as_bytes());
+            assert_eq!(&buf[..len], "ack".as_bytes());
             anyhow::Ok(())
         });
 

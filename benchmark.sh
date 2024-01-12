@@ -2,9 +2,21 @@
 
 set -e
 
+PROTOCOL=${1:-udp}
+
 cargo b --release
-taskset --cpu-list 0,1 ./target/release/forwarder -l 127.0.0.1:3536 -r 127.0.0.1:4546 &
-taskset --cpu-list 0,1 ./target/release/forwarder -l 127.0.0.1:4546 -r 127.0.0.1:3939 &
+bin_name=./target/release/forwarder
+
+if [ "$PROTOCOL" = "icmp" ]; then
+    sudo setcap cap_net_admin,cap_net_raw=eip $bin_name
+fi
+
+run_forwarder() {
+    taskset --cpu-list 0,1 $bin_name $@
+}
+
+run_forwarder -l 127.0.0.1:3536/udp -r 127.0.0.1:4546/$PROTOCOL &
+run_forwarder -l 127.0.0.1:4546/$PROTOCOL -r 127.0.0.1:3939/udp &
 
 # we use old iperf because it can run UDP server
 iperf -s -p 3939 -u &

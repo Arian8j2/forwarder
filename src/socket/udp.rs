@@ -16,11 +16,11 @@ impl UdpSocket {
 
 #[async_trait]
 impl Socket for UdpSocket {
-    async fn recv(&self, buffer: &mut [u8]) -> Result<usize> {
+    async fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
         self.0.recv(buffer).await
     }
 
-    async fn recv_from(&self, buffer: &mut [u8]) -> Result<(usize, SocketAddrV4)> {
+    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddrV4)> {
         let (len, addr) = self.0.recv_from(buffer).await?;
         match addr {
             SocketAddr::V4(v4_addr) => Ok((len, v4_addr)),
@@ -36,7 +36,7 @@ impl Socket for UdpSocket {
         self.0.send(buffer).await
     }
 
-    async fn connect(&self, addr: &SocketAddrV4) -> Result<()> {
+    async fn connect(&mut self, addr: &SocketAddrV4) -> Result<()> {
         self.0.connect(addr).await
     }
 }

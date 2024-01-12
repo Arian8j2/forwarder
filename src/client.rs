@@ -48,7 +48,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn spawn_task(self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {
+    pub fn spawn_task(mut self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {
         let (client_tx, mut client_rx) = mpsc::channel::<Vec<u8>>(MAX_CLIENT_CHANNEL_QUEUE_SIZE);
         let mut buffer = vec![0u8; 2048];
 
