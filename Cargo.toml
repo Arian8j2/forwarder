@@ -17,3 +17,7 @@ etherparse = "0.13.0"
 socket2 = "0.5.5"
 rand = "0.8.5"
 assert_cmd = "2.0.13"
+
+[build-dependencies]
+vergen = { version = "8.2.8", features = ["git", "gitcl"] }
+anyhow = "1.0.71"

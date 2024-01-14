@@ -8,7 +8,7 @@ mod socket;
 use anyhow::Result;
 use clap::Parser;
 use cli::Args;
-use log::LevelFilter;
+use log::{info, LevelFilter};
 use server::Server;
 use simple_logger::SimpleLogger;
 use socket::IcmpSettingSetter;
@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
+    log_version();
     let cli = Args::parse();
     cli.set_icmp_setting()?;
 
@@ -30,4 +31,12 @@ async fn main() -> Result<()> {
 
     server.run(cli.remote_addr).await;
     Ok(())
+}
+
+fn log_version() {
+    info!(
+        "latest commit: ({}, {})",
+        env!("VERGEN_GIT_SHA"),
+        env!("VERGEN_GIT_COMMIT_MESSAGE"),
+    );
 }
