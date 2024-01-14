@@ -1,18 +1,10 @@
-use super::AsyncRawSocket;
+use super::{setting::IcmpSetting, AsyncRawSocket};
 use crate::macros::loop_select;
 use etherparse::{Icmpv4Slice, Ipv4HeaderSlice};
-use lazy_static::lazy_static;
-use log::info;
+use log::{info, warn};
 use socket2::{Domain, Protocol};
-use std::io::ErrorKind;
-use std::net::SocketAddrV4;
-use std::sync::Mutex;
-use std::{io::Result, net::Ipv4Addr};
+use std::{io::Result, net::Ipv4Addr, net::SocketAddrV4};
 use tokio::sync::mpsc::{self, Receiver, Sender};
-
-lazy_static! {
-    pub static ref REGISTER_SENDER: Mutex<Option<Sender<PortIdk>>> = Mutex::new(None);
-}
 
 pub struct PortIdk {
     pub port: u16,
@@ -29,24 +21,30 @@ pub struct PacketReceiver {
     socket: AsyncRawSocket,
     open_ports: Vec<PortIdk>,
     register_receiver: Receiver<PortIdk>,
+    setting: IcmpSetting,
 }
 
 impl PacketReceiver {
-    pub fn new() -> Result<Self> {
+    /// Returns new `PacketReceiver` with a mpsc sender so
+    /// `IcmpSocket` instances can use that sender to register
+    /// their ports and receiver
+    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<PortIdk>)> {
         let socket = AsyncRawSocket::new(Domain::IPV4, Protocol::ICMPV4)?;
         let adress = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
         socket.bind(&adress.into())?;
 
         let (tx, rx) = mpsc::channel::<PortIdk>(256);
-        let mut register_sender = REGISTER_SENDER.lock().unwrap();
-        *register_sender = Some(tx);
         info!("new icmp packet receiver");
 
-        Ok(PacketReceiver {
-            socket,
-            open_ports: Vec::with_capacity(50),
-            register_receiver: rx,
-        })
+        Ok((
+            PacketReceiver {
+                socket,
+                open_ports: Vec::with_capacity(50),
+                register_receiver: rx,
+                setting,
+            },
+            tx,
+        ))
     }
 
     pub fn run(mut self) -> Result<()> {
@@ -64,7 +62,7 @@ impl PacketReceiver {
                     let Ok(len) = len else {
                         continue
                     };
-                    let Ok((data, sender)) = self.recv_from(&mut buffer, len) else {
+                    let Some((data, sender)) = self.recv_from(&mut buffer, len) else {
                         continue
                     };
                     if let Err(_e) = sender.send(data).await {
@@ -76,14 +74,9 @@ impl PacketReceiver {
         Ok(())
     }
 
-    fn recv_from(&self, buffer: &mut [u8], len: usize) -> Result<(OwnnedData, Sender<OwnnedData>)> {
-        let (iph, icmp) = parse_icmpv4_packet(&buffer[..len])?;
-
-        // ignore icmp reply packets, because many hosts send reply for
-        // each icmp echo packet so we need to ignore that
-        if icmp.type_u8() == 0 {
-            return Err(ErrorKind::InvalidInput.into());
-        }
+    fn recv_from(&self, buffer: &mut [u8], len: usize) -> Option<(OwnnedData, Sender<OwnnedData>)> {
+        let (iph, icmp) = Self::parse_icmpv4_packet(&buffer[..len])?;
+        self.validate_icmp_packet(&icmp);
 
         let bytes5to8 = icmp.bytes5to8();
         // icmp is on layer 3 so it has no idea about ports
@@ -97,7 +90,7 @@ impl PacketReceiver {
 
         // no port corresponding to dest port
         let Some(open_port) = self.open_ports.iter().find(|p| p.port == destination_port) else {
-            return Err(ErrorKind::InvalidInput.into());
+            return None;
         };
 
         let source_addr = SocketAddrV4::new(iph.source_addr(), source_port);
@@ -111,14 +104,28 @@ impl PacketReceiver {
             packet: result,
             from_addr: source_addr,
         };
-        Ok((data, open_port.sender.clone()))
+        Some((data, open_port.sender.clone()))
     }
-}
 
-fn parse_icmpv4_packet(bytes: &[u8]) -> Result<(Ipv4HeaderSlice, Icmpv4Slice)> {
-    let ip_header = Ipv4HeaderSlice::from_slice(bytes).map_err(|_| ErrorKind::InvalidData)?;
-    let payload_index: usize = (ip_header.total_len() - ip_header.payload_len()).into();
-    let icmp =
-        Icmpv4Slice::from_slice(&bytes[payload_index..]).map_err(|_| ErrorKind::InvalidData)?;
-    Ok((ip_header, icmp))
+    fn validate_icmp_packet(&self, icmp: &Icmpv4Slice) -> Option<()> {
+        let icmp_type = icmp.type_u8();
+        if icmp_type != self.setting.icmp_type {
+            warn!("received icmp packet with unexpected type field {icmp_type}");
+            return None;
+        }
+
+        let icmp_code = icmp.code_u8();
+        if icmp_code != self.setting.code {
+            warn!("received icmp packet with unexpected code field {icmp_code}");
+            return None;
+        }
+        Some(())
+    }
+
+    fn parse_icmpv4_packet(bytes: &[u8]) -> Option<(Ipv4HeaderSlice, Icmpv4Slice)> {
+        let ip_header = Ipv4HeaderSlice::from_slice(bytes).ok()?;
+        let payload_index: usize = (ip_header.total_len() - ip_header.payload_len()).into();
+        let icmp = Icmpv4Slice::from_slice(&bytes[payload_index..]).ok()?;
+        Some((ip_header, icmp))
+    }
 }

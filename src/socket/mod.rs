@@ -14,6 +14,7 @@ mod udp;
 use udp::UdpSocket;
 
 mod icmp;
+pub(crate) use icmp::setting::IcmpSettingSetter;
 use icmp::IcmpSocket;
 
 #[derive(Copy, Clone, Debug, PartialEq)]

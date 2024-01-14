@@ -11,6 +11,7 @@ use cli::Args;
 use log::LevelFilter;
 use server::Server;
 use simple_logger::SimpleLogger;
+use socket::IcmpSettingSetter;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -20,6 +21,8 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let cli = Args::parse();
+    cli.set_icmp_setting()?;
+
     let mut server = Server::new(cli.listen_addr).await?;
     if let Some(passphrase) = cli.passphrase {
         server.set_passphrase(&passphrase);
