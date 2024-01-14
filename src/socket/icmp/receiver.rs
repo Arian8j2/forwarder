@@ -6,7 +6,7 @@ use socket2::{Domain, Protocol};
 use std::{io::Result, net::Ipv4Addr, net::SocketAddrV4};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
-pub struct PortIdk {
+pub struct PortListener {
     pub port: u16,
     pub sender: Sender<OwnnedData>,
 }
@@ -17,10 +17,16 @@ pub struct OwnnedData {
     pub packet: Vec<u8>,
 }
 
+/// Listens for icmp packets and send them to `PortListener`s that
+/// registered their ports. At first created `PacketReceiver` because
+/// of miscalculation on my mind and thought need it but really it's not
+/// necessary, but kept it because it will reduce cpu usage compared to
+/// other option that needed every `IcmpSocket` to listen for every *icmp*
+/// packets and parse them and see if that packet actually is for them or not and ...
 pub struct PacketReceiver {
     socket: AsyncRawSocket,
-    open_ports: Vec<PortIdk>,
-    register_receiver: Receiver<PortIdk>,
+    open_ports: Vec<PortListener>,
+    register_receiver: Receiver<PortListener>,
     setting: IcmpSetting,
 }
 
@@ -28,12 +34,12 @@ impl PacketReceiver {
     /// Returns new `PacketReceiver` with a mpsc sender so
     /// `IcmpSocket` instances can use that sender to register
     /// their ports and receiver
-    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<PortIdk>)> {
+    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<PortListener>)> {
         let socket = AsyncRawSocket::new(Domain::IPV4, Protocol::ICMPV4)?;
         let adress = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
         socket.bind(&adress.into())?;
 
-        let (tx, rx) = mpsc::channel::<PortIdk>(256);
+        let (tx, rx) = mpsc::channel::<PortListener>(256);
         info!("new icmp packet receiver");
 
         Ok((
@@ -54,7 +60,7 @@ impl PacketReceiver {
                 new_register = self.register_receiver.recv() => {
                     let new_register = new_register.unwrap();
                     if self.open_ports.iter().any(|open_port| new_register.port == open_port.port) {
-                        panic!("port e tekrari");
+                        panic!("register duplicate port");
                     }
                     self.open_ports.push(new_register);
                 },

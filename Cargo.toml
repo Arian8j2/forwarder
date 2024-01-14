@@ -15,7 +15,6 @@ simple_logger = "4.2.0"
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "net", "sync", "process", "time"] }
 etherparse = "0.13.0"
 socket2 = "0.5.5"
-rand = "0.8.5"
 assert_cmd = "2.0.13"
 
 [build-dependencies]

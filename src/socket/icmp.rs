@@ -7,38 +7,39 @@ use async_raw::AsyncRawSocket;
 use async_trait::async_trait;
 use etherparse::{IcmpEchoHeader, Icmpv4Type};
 use lazy_static::lazy_static;
-use receiver::{OwnnedData, PacketReceiver, PortIdk};
+use receiver::{OwnnedData, PacketReceiver, PortListener};
 use setting::{IcmpSetting, ICMP_SETTING};
 use socket2::{Domain, Protocol, SockAddr};
 use std::{
     io::{Error, ErrorKind, Result},
-    net::SocketAddrV4,
+    net::{SocketAddr, SocketAddrV4},
     sync::Mutex,
 };
+use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const ICMPV4_HEADER_LEN_WITHOUT_DATA: usize = 8;
 
 lazy_static! {
-    pub static ref REGISTER_SENDER: Mutex<Option<Sender<PortIdk>>> = Mutex::new(None);
+    pub static ref REGISTER_SENDER: Mutex<Option<Sender<PortListener>>> = Mutex::new(None);
 }
 
+/// Udp like socket for Icmp
 pub struct IcmpSocket {
     addr: SocketAddrV4,
     socket: AsyncRawSocket,
     receiver: Receiver<OwnnedData>,
     connected_addr: Option<SocketAddrV4>,
     setting: IcmpSetting,
+    // we hold a udp socket with same address as icmp socket to
+    // stop using same ports when multiple instance of forwarder is running
+    _udp_socket: UdpSocket,
 }
 
 impl IcmpSocket {
     pub async fn bind(address: &SocketAddrV4) -> Result<Self> {
-        let mut address = address.to_owned();
-        if address.port() == 0 {
-            // TODO: handle duplicate ports
-            let random_port: u16 = rand::random();
-            address.set_port(random_port);
-        }
+        let udp_socket = UdpSocket::bind(address).await?;
+        let address = into_socket_addr_v4(udp_socket.local_addr()?)?;
 
         let socket = AsyncRawSocket::new(Domain::IPV4, Protocol::ICMPV4)?;
         socket.bind(&address.into())?;
@@ -51,7 +52,7 @@ impl IcmpSocket {
         let (tx, rx) = mpsc::channel(128);
         let register_sender = IcmpSocket::get_global_register_receiver(&icmp_setting)?;
         register_sender
-            .send(PortIdk {
+            .send(PortListener {
                 port: address.port(),
                 sender: tx,
             })
@@ -64,10 +65,11 @@ impl IcmpSocket {
             connected_addr: None,
             addr: address,
             setting: icmp_setting,
+            _udp_socket: udp_socket,
         })
     }
 
-    fn get_global_register_receiver(setting: &IcmpSetting) -> Result<Sender<PortIdk>> {
+    fn get_global_register_receiver(setting: &IcmpSetting) -> Result<Sender<PortListener>> {
         let mut register_sender = REGISTER_SENDER.lock().unwrap();
         if register_sender.is_none() {
             let (packet_receiver, real_register_sender) = PacketReceiver::new(*setting)?;
@@ -171,5 +173,12 @@ impl Socket for IcmpSocket {
     async fn connect(&mut self, addr: &SocketAddrV4) -> Result<()> {
         self.connected_addr = Some(addr.to_owned());
         Ok(())
+    }
+}
+
+fn into_socket_addr_v4(socket_addr: SocketAddr) -> Result<SocketAddrV4> {
+    match socket_addr {
+        SocketAddr::V4(addr) => Ok(addr),
+        _ => Err(ErrorKind::Other.into()),
     }
 }
