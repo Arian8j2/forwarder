@@ -1,17 +1,17 @@
 use crate::{
     encryption,
     macros::loop_select,
-    server::OwnnedData,
+    server::{OwnnedData, MAX_PACKET_SIZE},
     socket::{Socket, SocketProtocol},
 };
 use anyhow::Result;
 use std::net::SocketAddrV4;
 use tokio::sync::mpsc::{self, Sender};
 
-const MAX_CLIENT_CHANNEL_QUEUE_SIZE: usize = 512;
+const MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE: usize = 512;
 
 pub struct Client {
-    pub real_client_addr: SocketAddrV4,
+    real_client_addr: SocketAddrV4,
     socket: Box<dyn Socket>,
     passphrase: Option<String>,
 }
@@ -49,8 +49,9 @@ impl Client {
     }
 
     pub fn spawn_task(mut self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {
-        let (client_tx, mut client_rx) = mpsc::channel::<Vec<u8>>(MAX_CLIENT_CHANNEL_QUEUE_SIZE);
-        let mut buffer = vec![0u8; 2048];
+        let (client_tx, mut client_rx) =
+            mpsc::channel::<Vec<u8>>(MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE);
+        let mut buffer = vec![0u8; MAX_PACKET_SIZE];
 
         tokio::spawn(async move {
             loop_select! {

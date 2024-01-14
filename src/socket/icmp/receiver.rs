@@ -1,10 +1,14 @@
 use super::{setting::IcmpSetting, AsyncRawSocket};
 use crate::macros::loop_select;
+use crate::server::MAX_PACKET_SIZE;
 use etherparse::{Icmpv4Slice, Ipv4HeaderSlice};
 use log::{info, warn};
 use socket2::{Domain, Protocol};
 use std::{io::Result, net::Ipv4Addr, net::SocketAddrV4};
 use tokio::sync::mpsc::{self, Receiver, Sender};
+
+const MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE: usize = 256;
+const PORT_LISTENERS_BASE_CAPACITY: usize = 50;
 
 pub struct PortListener {
     pub port: u16,
@@ -39,13 +43,13 @@ impl PacketReceiver {
         let adress = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
         socket.bind(&adress.into())?;
 
-        let (tx, rx) = mpsc::channel::<PortListener>(256);
+        let (tx, rx) = mpsc::channel::<PortListener>(MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE);
         info!("new icmp packet receiver");
 
         Ok((
             PacketReceiver {
                 socket,
-                open_ports: Vec::with_capacity(50),
+                open_ports: Vec::with_capacity(PORT_LISTENERS_BASE_CAPACITY),
                 register_receiver: rx,
                 setting,
             },
@@ -55,7 +59,7 @@ impl PacketReceiver {
 
     pub fn run(mut self) -> Result<()> {
         tokio::spawn(async move {
-            let mut buffer = [0u8; 2048];
+            let mut buffer = [0u8; MAX_PACKET_SIZE];
             loop_select! {
                 new_register = self.register_receiver.recv() => {
                     let new_register = new_register.unwrap();

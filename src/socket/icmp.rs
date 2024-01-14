@@ -19,6 +19,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const ICMPV4_HEADER_LEN_WITHOUT_DATA: usize = 8;
+const PACKET_RECEIVER_CHANNEL_QUEUE_SIZE: usize = 128;
 
 lazy_static! {
     pub static ref REGISTER_SENDER: Mutex<Option<Sender<PortListener>>> = Mutex::new(None);
@@ -49,7 +50,7 @@ impl IcmpSocket {
             .map_err(|_| Error::from(ErrorKind::Other))?
             .unwrap();
 
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(PACKET_RECEIVER_CHANNEL_QUEUE_SIZE);
         let register_sender = IcmpSocket::get_global_register_receiver(&icmp_setting)?;
         register_sender
             .send(PortListener {

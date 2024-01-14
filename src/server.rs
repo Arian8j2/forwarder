@@ -7,6 +7,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
 const CLIENTS_BASE_CAPACITY: usize = 100;
+pub const MAX_PACKET_SIZE: usize = 2048;
 
 pub struct OwnnedData {
     pub data: Vec<u8>,
@@ -56,7 +57,7 @@ impl Server {
     }
 
     pub async fn run(mut self, redirect_uri: SocketUri) {
-        let mut buffer = vec![0u8; 2048];
+        let mut buffer = vec![0u8; MAX_PACKET_SIZE];
 
         loop_select! {
             // receive data from `Client` and send them back to real client
