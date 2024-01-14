@@ -64,15 +64,19 @@ impl PacketReceiver {
                     }
                     self.open_ports.push(new_register);
                 },
-                len = self.socket.recv(&mut buffer) => {
-                    let Ok(len) = len else {
+                maybe_len = self.socket.recv(&mut buffer) => {
+                    let Ok(len) = maybe_len else {
                         continue
                     };
-                    let Some((data, sender)) = self.recv_from(&mut buffer, len) else {
+                    let Some((data, port_listener)) = self.handle_packet(&mut buffer, len) else {
                         continue
                     };
-                    if let Err(_e) = sender.send(data).await {
-                        todo!("remove port from open_ports")
+                    if let Err(_e) = port_listener.sender.send(data).await {
+                        let index = self.open_ports
+                            .iter()
+                            .position(|open_port| open_port.port == port_listener.port)
+                            .unwrap();
+                        self.open_ports.remove(index);
                     }
                 }
             }
@@ -80,7 +84,7 @@ impl PacketReceiver {
         Ok(())
     }
 
-    fn recv_from(&self, buffer: &mut [u8], len: usize) -> Option<(OwnnedData, Sender<OwnnedData>)> {
+    fn handle_packet(&self, buffer: &mut [u8], len: usize) -> Option<(OwnnedData, &PortListener)> {
         let (iph, icmp) = Self::parse_icmpv4_packet(&buffer[..len])?;
         self.validate_icmp_packet(&icmp);
 
@@ -95,7 +99,8 @@ impl PacketReceiver {
         let source_port = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
 
         // no port corresponding to dest port
-        let Some(open_port) = self.open_ports.iter().find(|p| p.port == destination_port) else {
+        let Some(port_listener) = self.open_ports.iter().find(|p| p.port == destination_port)
+        else {
             return None;
         };
 
@@ -107,7 +112,7 @@ impl PacketReceiver {
             packet: result,
             from_addr: source_addr,
         };
-        Some((data, open_port.sender.clone()))
+        Some((data, port_listener))
     }
 
     fn validate_icmp_packet(&self, icmp: &Icmpv4Slice) -> Option<()> {
