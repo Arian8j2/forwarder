@@ -18,7 +18,7 @@ impl FromStr for SocketUri {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split("/").collect();
+        let parts: Vec<&str> = s.split('/').collect();
         if parts.len() > 2 {
             return Err(
                 "There are more parts than two, You can only use slash once in uri".to_owned(),
@@ -28,7 +28,7 @@ impl FromStr for SocketUri {
         let addr_str = parts
             .first()
             .ok_or("Uri need to have address part like '127.0.0.1'")?;
-        let addr = SocketAddrV4::from_str(&addr_str).map_err(|e| e.to_string())?;
+        let addr = SocketAddrV4::from_str(addr_str).map_err(|e| e.to_string())?;
 
         let protocol = match parts.get(1) {
             Some(protocol_str) => SocketProtocol::from_str(protocol_str)?,

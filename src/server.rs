@@ -76,8 +76,8 @@ impl Server {
     }
 
     #[inline]
-    async fn send_data_to(&self, data: &Vec<u8>, target: SocketAddrV4) {
-        let res = self.socket.send_to(&data, &target).await;
+    async fn send_data_to(&self, data: &[u8], target: SocketAddrV4) {
+        let res = self.socket.send_to(data, &target).await;
         if let Err(e) = res {
             warn!("couldn't send back datas received from remote: {e}");
         }

@@ -75,7 +75,7 @@ impl Client {
         //                               e                                  d
         // client -> (f1 server ---> f1 client) ------> (f2 server ---> f2 client) -> wireguard
         let data = match &self.passphrase {
-            Some(passphrase) => encryption::xor_small_chunk(data, &passphrase),
+            Some(passphrase) => encryption::xor_small_chunk(data, passphrase),
             None => data,
         };
         self.socket.send(&data).await.ok();
@@ -86,7 +86,7 @@ impl Client {
         //                               d      network                      e
         // client <- (f1 server <--- f1 client) <------ (f2 server <--- f2 client) <- wireguard
         let data = match &self.passphrase {
-            Some(passphrase) => encryption::xor_small_chunk(data, &passphrase),
+            Some(passphrase) => encryption::xor_small_chunk(data, passphrase),
             None => data,
         };
 

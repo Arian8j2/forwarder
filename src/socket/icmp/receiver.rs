@@ -96,10 +96,7 @@ impl PacketReceiver {
         let source_addr = SocketAddrV4::new(iph.source_addr(), source_port);
         let payload_len = icmp.payload().len();
 
-        let mut result = Vec::with_capacity(payload_len);
-        unsafe { result.set_len(payload_len) };
-        result[..payload_len].copy_from_slice(&buffer[len - payload_len..len]);
-
+        let result = buffer[len - payload_len..len].to_vec();
         let data = OwnnedData {
             packet: result,
             from_addr: source_addr,

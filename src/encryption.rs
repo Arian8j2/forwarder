@@ -1,8 +1,8 @@
 #[inline]
 pub fn xor_small_chunk(mut data: Vec<u8>, passphrase: &str) -> Vec<u8> {
-    for i in 0..data.len() {
-        let pass_index = i % passphrase.len();
-        data[i] ^= passphrase.as_bytes()[pass_index];
+    for (index, byte) in data.iter_mut().enumerate() {
+        let pass_index = index % passphrase.len();
+        *byte ^= passphrase.as_bytes()[pass_index];
     }
 
     data

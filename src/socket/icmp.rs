@@ -46,8 +46,7 @@ impl IcmpSocket {
         let icmp_setting = ICMP_SETTING
             .lock()
             .map_err(|_| Error::from(ErrorKind::Other))?
-            .unwrap()
-            .clone();
+            .unwrap();
 
         let (tx, rx) = mpsc::channel(128);
         let register_sender = IcmpSocket::get_global_register_receiver(&icmp_setting)?;
@@ -63,7 +62,7 @@ impl IcmpSocket {
             socket,
             receiver: rx,
             connected_addr: None,
-            addr: address.clone(),
+            addr: address,
             setting: icmp_setting,
         })
     }
@@ -71,7 +70,7 @@ impl IcmpSocket {
     fn get_global_register_receiver(setting: &IcmpSetting) -> Result<Sender<PortIdk>> {
         let mut register_sender = REGISTER_SENDER.lock().unwrap();
         if register_sender.is_none() {
-            let (packet_receiver, real_register_sender) = PacketReceiver::new(setting.clone())?;
+            let (packet_receiver, real_register_sender) = PacketReceiver::new(*setting)?;
             packet_receiver.run()?;
             *register_sender = Some(real_register_sender);
         }
@@ -90,9 +89,7 @@ impl IcmpSocket {
         }
         .to_bytes();
 
-        let mut result = Vec::with_capacity(ICMPV4_HEADER_LEN_WITHOUT_DATA + payload.len());
-        unsafe { result.set_len(result.capacity()) };
-
+        let mut result = vec![0u8; ICMPV4_HEADER_LEN_WITHOUT_DATA + payload.len()];
         let checksum = if self.setting.ignore_checksum {
             [0, 0]
         } else {
