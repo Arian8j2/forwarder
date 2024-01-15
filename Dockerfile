@@ -13,4 +13,4 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/forwarder forw
 ENV LISTEN_ADDR=0.0.0.0:1001 \
     REDIRECT_ADDR=127.0.0.1:8585 \
     PASSPHRASE=haha
-CMD ./forwarder -l $LISTEN_ADDR -r $REDIRECT_ADDR -p $PASSPHRASE
+CMD ./forwarder -l $LISTEN_ADDR -r $REDIRECT_ADDR -p $PASSPHRASE $OTHER_ARGS
