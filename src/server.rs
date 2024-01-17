@@ -96,20 +96,24 @@ impl Server {
             Some(client) => &client.tx,
             None => {
                 info!("new client '{from_addr}'");
-                let Ok(new_client) = self
+
+                match self
                     .prepare_new_client(from_addr, redirect_uri, &self.passphrase)
                     .await
-                else {
-                    warn!("cannot prepare new client '{from_addr}'");
-                    return;
-                };
-                let client_tx = new_client.spawn_task(self.send_to_real_client_tx.clone());
-
-                self.clients.push(ReceiverClient {
-                    addr: from_addr,
-                    tx: client_tx,
-                });
-                &self.clients.last().unwrap().tx
+                {
+                    Ok(new_client) => {
+                        let client_tx = new_client.spawn_task(self.send_to_real_client_tx.clone());
+                        self.clients.push(ReceiverClient {
+                            addr: from_addr,
+                            tx: client_tx,
+                        });
+                        &self.clients.last().unwrap().tx
+                    }
+                    Err(err) => {
+                        warn!("cannot prepare new client '{from_addr}', {err:?}");
+                        return;
+                    }
+                }
             }
         };
 
