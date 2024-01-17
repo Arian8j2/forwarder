@@ -1,7 +1,7 @@
 FROM rust:1.72-alpine3.17 as builder
 
 RUN rustup target add x86_64-unknown-linux-musl
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev git
 
 WORKDIR /app
 COPY . .
