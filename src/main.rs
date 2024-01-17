@@ -12,11 +12,13 @@ use log::{info, LevelFilter};
 use server::Server;
 use simple_logger::SimpleLogger;
 use socket::IcmpSettingSetter;
+use std::{env, str::FromStr};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    let log_level = env::var("RUST_LOG").unwrap_or("info".to_owned());
     SimpleLogger::new()
-        .with_level(LevelFilter::Info)
+        .with_level(LevelFilter::from_str(&log_level)?)
         .init()
         .unwrap();
 
