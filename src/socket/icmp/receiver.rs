@@ -2,7 +2,7 @@ use super::{setting::IcmpSetting, AsyncRawSocket};
 use crate::macros::loop_select;
 use crate::server::MAX_PACKET_SIZE;
 use etherparse::{Icmpv4Slice, Ipv4HeaderSlice};
-use log::{info, warn};
+use log::{debug, info};
 use socket2::{Domain, Protocol};
 use std::{io::Result, net::Ipv4Addr, net::SocketAddrV4};
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -122,13 +122,13 @@ impl PacketReceiver {
     fn validate_icmp_packet(&self, icmp: &Icmpv4Slice) -> Option<()> {
         let icmp_type = icmp.type_u8();
         if icmp_type != self.setting.icmp_type {
-            warn!("received icmp packet with unexpected type field {icmp_type}");
+            debug!("unexpected icmp type {icmp_type}");
             return None;
         }
 
         let icmp_code = icmp.code_u8();
         if icmp_code != self.setting.code {
-            warn!("received icmp packet with unexpected code field {icmp_code}");
+            debug!("unexpected icmp code {icmp_code}");
             return None;
         }
         Some(())
