@@ -4,7 +4,7 @@ use crate::{
     server::{OwnnedData, MAX_PACKET_SIZE},
     socket::{Socket, SocketUri},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use tokio::sync::mpsc::{self, Sender};
 
@@ -29,8 +29,16 @@ impl Client {
             }
         };
 
-        let mut socket = redirect_uri.protocol.bind(&addr).await?;
-        socket.connect(&redirect_uri.addr).await?;
+        let mut socket = redirect_uri
+            .protocol
+            .bind(&addr)
+            .await
+            .with_context(|| "Binding address to Client")?;
+
+        socket
+            .connect(&redirect_uri.addr)
+            .await
+            .with_context(|| "Connecting to redirect address")?;
 
         // TODO: add some log message similar to this
         // info!(
