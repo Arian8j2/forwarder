@@ -33,3 +33,10 @@ jobs:
           tags: ghcr.io/arian8j2/forwarder:latest
           cache-from: type=registry,ref=ghcr.io/arian8j2/forwarder:latest
           cache-to: type=inline
+
+      - name: Delete old packages
+        uses: actions/delete-package-versions@v4
+        with:
+          package-name: forwarder
+          package-type: container
+          min-versions-to-keep: 5
