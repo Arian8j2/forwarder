@@ -1,13 +1,13 @@
 use async_trait::async_trait;
-use std::{io::Result, net::SocketAddrV4, str::FromStr};
+use std::{io::Result, net::SocketAddr, str::FromStr};
 
 #[async_trait]
 pub trait Socket: Send + Sync {
     async fn recv(&mut self, buffer: &mut [u8]) -> Result<usize>;
-    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddrV4)>;
-    async fn send_to(&self, buffer: &[u8], to: &SocketAddrV4) -> Result<usize>;
+    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr)>;
+    async fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> Result<usize>;
     async fn send(&self, buffer: &[u8]) -> Result<usize>;
-    async fn connect(&mut self, addr: &SocketAddrV4) -> Result<()>;
+    async fn connect(&mut self, addr: &SocketAddr) -> Result<()>;
 }
 
 mod udp;
@@ -24,10 +24,15 @@ pub enum SocketProtocol {
 }
 
 impl SocketProtocol {
-    pub async fn bind(self, addr: &SocketAddrV4) -> Result<Box<dyn Socket>> {
+    pub async fn bind(self, addr: &SocketAddr) -> Result<Box<dyn Socket>> {
         let socket: Box<dyn Socket> = match self {
             SocketProtocol::Udp => Box::new(UdpSocket::bind(addr).await?),
-            SocketProtocol::Icmp => Box::new(IcmpSocket::bind(addr).await?),
+            SocketProtocol::Icmp => {
+                let SocketAddr::V4(v4_addr) = addr else {
+                    unimplemented!("icmp socket doesn't support ipv6")
+                };
+                Box::new(IcmpSocket::bind(v4_addr).await?)
+            }
         };
         Ok(socket)
     }

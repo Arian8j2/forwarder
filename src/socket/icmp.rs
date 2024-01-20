@@ -5,6 +5,7 @@ pub mod setting;
 use super::Socket;
 use async_raw::AsyncRawSocket;
 use async_trait::async_trait;
+use core::panic;
 use etherparse::{IcmpEchoHeader, Icmpv4Type};
 use lazy_static::lazy_static;
 use receiver::{OwnnedData, PacketReceiver, PortListener};
@@ -30,7 +31,7 @@ pub struct IcmpSocket {
     addr: SocketAddrV4,
     socket: AsyncRawSocket,
     receiver: Receiver<OwnnedData>,
-    connected_addr: Option<SocketAddrV4>,
+    connected_addr: Option<SocketAddr>,
     setting: IcmpSetting,
     // we hold a udp socket with same address as icmp socket to
     // stop using same ports when multiple instance of forwarder is running
@@ -133,12 +134,16 @@ impl Socket for IcmpSocket {
             return Err(ErrorKind::NotConnected.into());
         };
 
+        let SocketAddr::V4(from_v4_addr) = from_addr else {
+            unreachable!()
+        };
+
         let data = loop {
             let Some(data) = self.receiver.recv().await else {
                 panic!("icmp client channel closed")
             };
 
-            if data.from_addr == from_addr {
+            if data.from_addr == from_v4_addr {
                 break data;
             }
         };
@@ -148,18 +153,21 @@ impl Socket for IcmpSocket {
         Ok(len)
     }
 
-    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddrV4)> {
+    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr)> {
         let Some(data) = self.receiver.recv().await else {
             panic!("icmp client channel closed")
         };
 
         let len = data.packet.len();
         buffer[..len].copy_from_slice(&data.packet);
-        Ok((len, data.from_addr))
+        Ok((len, data.from_addr.into()))
     }
 
-    async fn send_to(&self, buffer: &[u8], to: &SocketAddrV4) -> Result<usize> {
-        let packet = self.craft_icmpv4_packet(buffer, &self.addr, to)?;
+    async fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> Result<usize> {
+        let SocketAddr::V4(v4_addr) = to else {
+            unreachable!()
+        };
+        let packet = self.craft_icmpv4_packet(buffer, &self.addr, v4_addr)?;
         let to_addr = SockAddr::from(to.to_owned());
         self.socket.send_to(packet.as_slice(), &to_addr).await
     }
@@ -171,7 +179,8 @@ impl Socket for IcmpSocket {
         self.send_to(buffer, &to_addr).await
     }
 
-    async fn connect(&mut self, addr: &SocketAddrV4) -> Result<()> {
+    async fn connect(&mut self, addr: &SocketAddr) -> Result<()> {
+        assert!(addr.is_ipv4());
         self.connected_addr = Some(addr.to_owned());
         Ok(())
     }

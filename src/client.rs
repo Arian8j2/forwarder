@@ -2,27 +2,35 @@ use crate::{
     encryption,
     macros::loop_select,
     server::{OwnnedData, MAX_PACKET_SIZE},
-    socket::{Socket, SocketProtocol},
+    socket::{Socket, SocketUri},
 };
 use anyhow::Result;
-use std::net::SocketAddrV4;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use tokio::sync::mpsc::{self, Sender};
 
 const MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE: usize = 512;
 
 pub struct Client {
-    real_client_addr: SocketAddrV4,
+    real_client_addr: SocketAddr,
     socket: Box<dyn Socket>,
     passphrase: Option<String>,
 }
 
 impl Client {
-    pub async fn new(
-        socket_protocol: SocketProtocol,
-        real_client_addr: SocketAddrV4,
+    pub async fn connect(
+        real_client_addr: SocketAddr,
+        redirect_uri: SocketUri,
+        passphrase: Option<String>,
     ) -> Result<Self> {
-        let addr: SocketAddrV4 = "0.0.0.0:0".parse()?;
-        let socket = socket_protocol.bind(&addr).await?;
+        let addr: SocketAddr = match redirect_uri.addr {
+            SocketAddr::V4(_) => SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into(),
+            SocketAddr::V6(_) => {
+                SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
+            }
+        };
+
+        let mut socket = redirect_uri.protocol.bind(&addr).await?;
+        socket.connect(&redirect_uri.addr).await?;
 
         // TODO: add some log message similar to this
         // info!(
@@ -34,18 +42,8 @@ impl Client {
         Ok(Client {
             real_client_addr,
             socket,
-            passphrase: None,
+            passphrase,
         })
-    }
-
-    pub async fn connect(
-        &mut self,
-        redirect_addr: SocketAddrV4,
-        passphrase: Option<String>,
-    ) -> Result<()> {
-        self.socket.connect(&redirect_addr).await?;
-        self.passphrase = passphrase;
-        Ok(())
     }
 
     pub fn spawn_task(mut self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {

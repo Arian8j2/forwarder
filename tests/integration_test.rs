@@ -55,6 +55,19 @@ async fn test_redirect_packets_via_icmp() {
     test_udp_handshake(connect_to, real_server_addr).await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_redirect_packets_via_udp_ipv6() {
+    let _f1_child =
+        spawn_forwarder("-l 127.0.0.1:10003/udp -r [::1]:30003/udp -p password").unwrap();
+    let _f2_child =
+        spawn_forwarder("-l [::1]:30003/udp -r 127.0.0.1:4141/udp -p password").unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let real_server_addr = SocketAddrV4::from_str("127.0.0.1:4141").unwrap();
+    let connect_to = SocketAddrV4::from_str("127.0.0.1:10003").unwrap();
+    test_udp_handshake(connect_to, real_server_addr).await;
+}
+
 async fn test_udp_handshake(connect_to: SocketAddrV4, server_addr: SocketAddrV4) {
     use tokio::net::UdpSocket;
 

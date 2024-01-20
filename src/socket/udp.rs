@@ -1,14 +1,11 @@
 use super::Socket;
 use async_trait::async_trait;
-use std::{
-    io::{ErrorKind, Result},
-    net::{SocketAddr, SocketAddrV4},
-};
+use std::{io::Result, net::SocketAddr};
 
 pub struct UdpSocket(tokio::net::UdpSocket);
 
 impl UdpSocket {
-    pub async fn bind(address: &SocketAddrV4) -> Result<Self> {
+    pub async fn bind(address: &SocketAddr) -> Result<Self> {
         let socket = tokio::net::UdpSocket::bind(address).await?;
         Ok(UdpSocket(socket))
     }
@@ -20,15 +17,11 @@ impl Socket for UdpSocket {
         self.0.recv(buffer).await
     }
 
-    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddrV4)> {
-        let (len, addr) = self.0.recv_from(buffer).await?;
-        match addr {
-            SocketAddr::V4(v4_addr) => Ok((len, v4_addr)),
-            SocketAddr::V6(_) => Err(ErrorKind::Unsupported.into()),
-        }
+    async fn recv_from(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr)> {
+        self.0.recv_from(buffer).await
     }
 
-    async fn send_to(&self, buffer: &[u8], to: &SocketAddrV4) -> Result<usize> {
+    async fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> Result<usize> {
         self.0.send_to(buffer, to).await
     }
 
@@ -36,7 +29,7 @@ impl Socket for UdpSocket {
         self.0.send(buffer).await
     }
 
-    async fn connect(&mut self, addr: &SocketAddrV4) -> Result<()> {
+    async fn connect(&mut self, addr: &SocketAddr) -> Result<()> {
         self.0.connect(addr).await
     }
 }

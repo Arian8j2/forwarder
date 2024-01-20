@@ -1,15 +1,15 @@
 use super::SocketProtocol;
-use std::{net::SocketAddrV4, str::FromStr};
+use std::{net::SocketAddr, str::FromStr};
 
 #[derive(Clone, Copy, Debug)]
 pub struct SocketUri {
-    pub addr: SocketAddrV4,
+    pub addr: SocketAddr,
     pub protocol: SocketProtocol,
 }
 
 #[allow(unused)]
 impl SocketUri {
-    pub fn new(addr: SocketAddrV4, protocol: SocketProtocol) -> Self {
+    pub fn new(addr: SocketAddr, protocol: SocketProtocol) -> Self {
         SocketUri { addr, protocol }
     }
 }
@@ -28,13 +28,18 @@ impl FromStr for SocketUri {
         let addr_str = parts
             .first()
             .ok_or("Uri need to have address part like '127.0.0.1'")?;
-        let addr = SocketAddrV4::from_str(addr_str).map_err(|e| e.to_string())?;
+        let addr = SocketAddr::from_str(addr_str).map_err(|e| e.to_string())?;
 
         let protocol = match parts.get(1) {
             Some(protocol_str) => SocketProtocol::from_str(protocol_str)?,
             None => SocketProtocol::Udp,
         };
-        Ok(SocketUri { addr, protocol })
+
+        if protocol == SocketProtocol::Icmp && addr.is_ipv6() {
+            Err("Icmp with ipv6 address is not supported".to_owned())
+        } else {
+            Ok(SocketUri { addr, protocol })
+        }
     }
 }
 
@@ -49,7 +54,7 @@ impl TryFrom<&str> for SocketUri {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_udp_uri() {
@@ -57,7 +62,7 @@ mod tests {
         let uri = SocketUri::from_str(input).unwrap();
         assert_eq!(
             uri.addr,
-            SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8000)
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000)
         );
         assert_eq!(uri.protocol, SocketProtocol::Udp);
     }

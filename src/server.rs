@@ -2,7 +2,7 @@ use crate::socket::{Socket, SocketUri};
 use crate::{client::Client, macros::loop_select};
 use anyhow::{Context, Result};
 use log::{info, warn};
-use std::net::SocketAddrV4;
+use std::net::SocketAddr;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
@@ -11,11 +11,11 @@ pub const MAX_PACKET_SIZE: usize = 2048;
 
 pub struct OwnnedData {
     pub data: Vec<u8>,
-    pub target: SocketAddrV4,
+    pub target: SocketAddr,
 }
 
 struct ReceiverClient {
-    addr: SocketAddrV4,
+    addr: SocketAddr,
     tx: Sender<Vec<u8>>,
 }
 
@@ -77,7 +77,7 @@ impl Server {
     }
 
     #[inline]
-    async fn send_data_to(&self, data: &[u8], target: SocketAddrV4) {
+    async fn send_data_to(&self, data: &[u8], target: SocketAddr) {
         let res = self.socket.send_to(data, &target).await;
         if let Err(e) = res {
             warn!("couldn't send back datas received from remote: {e}");
@@ -88,7 +88,7 @@ impl Server {
     #[inline]
     async fn handle_incomming_packet(
         &mut self,
-        from_addr: SocketAddrV4,
+        from_addr: SocketAddr,
         data: Vec<u8>,
         redirect_uri: &SocketUri,
     ) {
@@ -125,14 +125,16 @@ impl Server {
 
     async fn prepare_new_client(
         &self,
-        real_client_addr: SocketAddrV4,
+        real_client_addr: SocketAddr,
         redirect_uri: &SocketUri,
         passphrase: &Option<String>,
     ) -> Result<Client> {
-        let mut new_client = Client::new(redirect_uri.protocol, real_client_addr).await?;
-        new_client
-            .connect(redirect_uri.addr, passphrase.clone())
-            .await?;
+        let new_client = Client::connect(
+            real_client_addr.to_owned(),
+            redirect_uri.to_owned(),
+            passphrase.clone(),
+        )
+        .await?;
         Ok(new_client)
     }
 }
