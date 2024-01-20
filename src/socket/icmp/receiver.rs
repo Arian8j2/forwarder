@@ -90,7 +90,7 @@ impl PacketReceiver {
 
     fn handle_packet(&self, buffer: &mut [u8], len: usize) -> Option<(OwnnedData, &PortListener)> {
         let (iph, icmp) = Self::parse_icmpv4_packet(&buffer[..len])?;
-        self.validate_icmp_packet(&icmp);
+        self.validate_icmp_packet(&icmp)?;
 
         let bytes5to8 = icmp.bytes5to8();
         // icmp is on layer 3 so it has no idea about ports
