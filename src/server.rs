@@ -92,23 +92,15 @@ impl Server {
         data: Vec<u8>,
         redirect_uri: &SocketUri,
     ) {
-        let client_tx = match self.clients.iter().find(|c| c.addr == from_addr) {
-            Some(client) => &client.tx,
-            None => {
+        let client_tx = match self.clients.binary_search_by_key(&from_addr, |c| c.addr) {
+            Ok(index) => &self.clients[index].tx,
+            Err(appropriate_index) => {
                 info!("new client '{from_addr}'");
-
                 match self
-                    .prepare_new_client(from_addr, redirect_uri, &self.passphrase)
+                    .add_new_client(appropriate_index, from_addr, redirect_uri)
                     .await
                 {
-                    Ok(new_client) => {
-                        let client_tx = new_client.spawn_task(self.send_to_real_client_tx.clone());
-                        self.clients.push(ReceiverClient {
-                            addr: from_addr,
-                            tx: client_tx,
-                        });
-                        &self.clients.last().unwrap().tx
-                    }
+                    Ok(new_client) => &new_client.tx,
                     Err(err) => {
                         warn!("cannot prepare new client '{from_addr}', {err:?}");
                         return;
@@ -123,18 +115,25 @@ impl Server {
         }
     }
 
-    async fn prepare_new_client(
-        &self,
+    async fn add_new_client(
+        &mut self,
+        index: usize,
         real_client_addr: SocketAddr,
         redirect_uri: &SocketUri,
-        passphrase: &Option<String>,
-    ) -> Result<Client> {
-        let new_client = Client::connect(
+    ) -> Result<&ReceiverClient> {
+        let client_tx = Client::connect(
             real_client_addr.to_owned(),
             redirect_uri.to_owned(),
-            passphrase.clone(),
+            self.passphrase.clone(),
         )
-        .await?;
-        Ok(new_client)
+        .await?
+        .spawn_task(self.send_to_real_client_tx.clone());
+
+        let receiver_client = ReceiverClient {
+            addr: real_client_addr,
+            tx: client_tx,
+        };
+        self.clients.insert(index, receiver_client);
+        Ok(&self.clients[index])
     }
 }
