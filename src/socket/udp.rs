@@ -32,4 +32,8 @@ impl Socket for UdpSocket {
     async fn connect(&mut self, addr: &SocketAddr) -> Result<()> {
         self.0.connect(addr).await
     }
+
+    fn local_addr(&mut self) -> Result<SocketAddr> {
+        self.0.local_addr()
+    }
 }

@@ -8,6 +8,7 @@ pub trait Socket: Send + Sync {
     async fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> Result<usize>;
     async fn send(&self, buffer: &[u8]) -> Result<usize>;
     async fn connect(&mut self, addr: &SocketAddr) -> Result<()>;
+    fn local_addr(&mut self) -> Result<SocketAddr>;
 }
 
 mod protocol;

@@ -1,5 +1,5 @@
 use super::{icmp::IcmpSocket, udp::UdpSocket, Socket};
-use std::{io::Result, net::SocketAddr, str::FromStr};
+use std::{fmt::Display, io::Result, net::SocketAddr, str::FromStr};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SocketProtocol {
@@ -31,5 +31,15 @@ impl FromStr for SocketProtocol {
             "icmp" => Ok(SocketProtocol::Icmp),
             _ => Err("Invalid socket protocl name, valid socket protocols are: 'udp'"),
         }
+    }
+}
+
+impl Display for SocketProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            SocketProtocol::Icmp => "icmp".to_owned(),
+            SocketProtocol::Udp => "udp".to_owned(),
+        };
+        write!(f, "{str}")
     }
 }

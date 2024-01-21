@@ -184,6 +184,10 @@ impl Socket for IcmpSocket {
         self.connected_addr = Some(addr.to_owned());
         Ok(())
     }
+
+    fn local_addr(&mut self) -> Result<SocketAddr> {
+        Ok(self.addr.into())
+    }
 }
 
 fn into_socket_addr_v4(socket_addr: SocketAddr) -> Result<SocketAddrV4> {

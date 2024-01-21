@@ -5,6 +5,7 @@ use crate::{
     socket::{Socket, SocketUri},
 };
 use anyhow::{Context, Result};
+use log::info;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use tokio::sync::mpsc::{self, Sender};
 
@@ -34,18 +35,17 @@ impl Client {
             .bind(&addr)
             .await
             .with_context(|| "Binding address to Client")?;
-
         socket
             .connect(&redirect_uri.addr)
             .await
             .with_context(|| "Connecting to redirect address")?;
 
-        // TODO: add some log message similar to this
-        // info!(
-        //     "created client socket '{}' for handling '{}'",
-        //     socket.local_addr().unwrap(),
-        //     real_client_addr
-        // );
+        info!(
+            "created client socket '{}/{}' for handling '{}'",
+            socket.local_addr().unwrap(),
+            redirect_uri.protocol,
+            real_client_addr
+        );
 
         Ok(Client {
             real_client_addr,
