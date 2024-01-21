@@ -57,16 +57,21 @@ impl PacketReceiver {
         ))
     }
 
+    #[inline]
+    fn search_listener_port(&self, port: &u16) -> std::prelude::v1::Result<usize, usize> {
+        self.open_ports.binary_search_by_key(port, |p| p.port)
+    }
+
     pub fn run(mut self) -> Result<()> {
         tokio::spawn(async move {
             let mut buffer = [0u8; MAX_PACKET_SIZE];
             loop_select! {
                 new_register = self.register_receiver.recv() => {
                     let new_register = new_register.unwrap();
-                    if self.open_ports.iter().any(|open_port| new_register.port == open_port.port) {
-                        panic!("register duplicate port");
-                    }
-                    self.open_ports.push(new_register);
+                    let index = self
+                        .search_listener_port(&new_register.port)
+                        .unwrap_err();
+                    self.open_ports.insert(index, new_register);
                 },
                 maybe_len = self.socket.recv(&mut buffer) => {
                     let Ok(len) = maybe_len else {
@@ -76,10 +81,7 @@ impl PacketReceiver {
                         continue
                     };
                     if let Err(_e) = port_listener.sender.send(data).await {
-                        let index = self.open_ports
-                            .iter()
-                            .position(|open_port| open_port.port == port_listener.port)
-                            .unwrap();
+                        let index = self.search_listener_port(&port_listener.port).unwrap();
                         self.open_ports.remove(index);
                     }
                 }
@@ -103,8 +105,7 @@ impl PacketReceiver {
         let source_port = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
 
         // no port corresponding to dest port
-        let Some(port_listener) = self.open_ports.iter().find(|p| p.port == destination_port)
-        else {
+        let Ok(port_listener_index) = self.search_listener_port(&destination_port) else {
             return None;
         };
 
@@ -116,7 +117,7 @@ impl PacketReceiver {
             packet: result,
             from_addr: source_addr,
         };
-        Some((data, port_listener))
+        Some((data, &self.open_ports[port_listener_index]))
     }
 
     fn validate_icmp_packet(&self, icmp: &Icmpv4Slice) -> Option<()> {
