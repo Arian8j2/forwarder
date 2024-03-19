@@ -1,15 +1,19 @@
 use crate::{
     encryption,
     macros::loop_select,
-    server::{OwnnedData, MAX_PACKET_SIZE},
+    server::{ClientToServerMsg, MAX_PACKET_SIZE},
     socket::{Socket, SocketUri},
 };
 use anyhow::{Context, Result};
 use log::info;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::{
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    time::Duration,
+};
 use tokio::sync::mpsc::{self, Sender};
 
 const MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE: usize = 512;
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 pub struct Client {
     real_client_addr: SocketAddr,
@@ -54,7 +58,7 @@ impl Client {
         })
     }
 
-    pub fn spawn_task(mut self, server_tx: Sender<OwnnedData>) -> Sender<Vec<u8>> {
+    pub fn spawn_task(mut self, server_tx: Sender<ClientToServerMsg>) -> Sender<Vec<u8>> {
         let (client_tx, mut client_rx) =
             mpsc::channel::<Vec<u8>>(MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE);
         let mut buffer = vec![0u8; MAX_PACKET_SIZE];
@@ -63,10 +67,20 @@ impl Client {
             loop_select! {
                 // receive data from `Server` and send them to real server
                 datas_need_to_send = client_rx.recv() => self.handle_datas_need_to_send(datas_need_to_send).await,
+
                 // receive data from real Server and transfer them back to `Server` to handle it
                 Ok(len) = self.socket.recv(&mut buffer) => {
                     let data = buffer[..len].to_vec();
                     self.handle_incomming_packets(data, server_tx.clone()).await;
+                },
+
+                // cleanup client when not been used for a long time
+                _ = tokio::time::sleep(CLEANUP_TIMEOUT) => {
+                    let message = ClientToServerMsg::ClientCleanup(self.real_client_addr);
+                    match server_tx.send(message).await {
+                        Ok(()) => break, // exits the entire loop and the task ends
+                        Err(error) => log::warn!("couldn't send cleanup message to server, {error:?}")
+                    }
                 }
             };
         });
@@ -89,7 +103,7 @@ impl Client {
     }
 
     #[inline]
-    async fn handle_incomming_packets(&self, data: Vec<u8>, server_tx: Sender<OwnnedData>) {
+    async fn handle_incomming_packets(&self, data: Vec<u8>, server_tx: Sender<ClientToServerMsg>) {
         //                               d      network                      e
         // client <- (f1 server <--- f1 client) <------ (f2 server <--- f2 client) <- wireguard
         let data = match &self.passphrase {
@@ -97,11 +111,12 @@ impl Client {
             None => data,
         };
 
-        let ownned_data = OwnnedData {
-            data,
-            target: self.real_client_addr,
-        };
-
-        server_tx.send(ownned_data).await.ok();
+        server_tx
+            .send(ClientToServerMsg::DataFromRealServer {
+                target: self.real_client_addr,
+                data,
+            })
+            .await
+            .ok();
     }
 }

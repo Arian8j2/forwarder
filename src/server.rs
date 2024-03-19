@@ -9,9 +9,9 @@ const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
 const CLIENTS_BASE_CAPACITY: usize = 100;
 pub const MAX_PACKET_SIZE: usize = 2048;
 
-pub struct OwnnedData {
-    pub data: Vec<u8>,
-    pub target: SocketAddr,
+pub enum ClientToServerMsg {
+    DataFromRealServer { data: Vec<u8>, target: SocketAddr },
+    ClientCleanup(SocketAddr),
 }
 
 struct ReceiverClient {
@@ -22,9 +22,9 @@ struct ReceiverClient {
 pub struct Server {
     socket: Box<dyn Socket>,
     // each `Client` gets a clone of this so they can send data to server
-    send_to_real_client_tx: Sender<OwnnedData>,
+    send_to_real_client_tx: Sender<ClientToServerMsg>,
     // receive data that needs to sent back to real client
-    send_to_real_client_rx: Receiver<OwnnedData>,
+    send_to_real_client_rx: Receiver<ClientToServerMsg>,
     // using vector instead of hashmap because there is a few clients
     // maybe around 50 or lower so finding in vector is faster
     clients: Vec<ReceiverClient>,
@@ -41,7 +41,7 @@ impl Server {
             .with_context(|| format!("Couldn't listen on '{listen_addr}'"))?;
         info!("listen on '{listen_addr}'");
 
-        let (tx, rx) = mpsc::channel::<OwnnedData>(MAX_SERVER_CHANNEL_QUEUE_SIZE);
+        let (tx, rx) = mpsc::channel::<ClientToServerMsg>(MAX_SERVER_CHANNEL_QUEUE_SIZE);
         let clients: Vec<ReceiverClient> = Vec::with_capacity(CLIENTS_BASE_CAPACITY);
         Ok(Self {
             socket,
@@ -61,18 +61,26 @@ impl Server {
 
         loop_select! {
             // receive data from `Client` and send them back to real client
-            data_need_to_send = self.send_to_real_client_rx.recv() => {
-                let Some(ownned_data) = data_need_to_send else {
-                    panic!("server mpsc channel got disconnected");
-                };
-                self.send_data_to(&ownned_data.data, ownned_data.target).await
+            message = self.send_to_real_client_rx.recv() => {
+                let message = message.expect("server-client mpsc channel closed");
+                match message {
+                    ClientToServerMsg::DataFromRealServer { data, target } => {
+                        self.send_data_to(&data, target).await
+                    },
+                    ClientToServerMsg::ClientCleanup(addr) => {
+                        let index = self.clients.iter().position(|client| client.addr == addr).unwrap();
+                        self.clients.remove(index);
+                        log::info!("cleaned client that handled '{addr}'");
+                    }
+                }
             },
+
             // receive data from real client and transfer it to `Client`
             Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
                 let data = buffer[..len].to_vec();
                 self.handle_incomming_packet(from_addr, data, &redirect_uri)
                     .await;
-            }
+            },
         }
     }
 
