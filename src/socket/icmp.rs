@@ -23,7 +23,12 @@ const ICMPV4_HEADER_LEN_WITHOUT_DATA: usize = 8;
 const PACKET_RECEIVER_CHANNEL_QUEUE_SIZE: usize = 128;
 
 lazy_static! {
-    pub static ref REGISTER_SENDER: Mutex<Option<Sender<PortListener>>> = Mutex::new(None);
+    pub static ref REGISTER_SENDER: Mutex<Option<Sender<RegisterMsg>>> = Mutex::new(None);
+}
+
+pub enum RegisterMsg {
+    Register(PortListener),
+    UnRegister { port: u16 },
 }
 
 /// Udp like socket for Icmp
@@ -36,6 +41,7 @@ pub struct IcmpSocket {
     // we hold a udp socket with same address as icmp socket to
     // stop using same ports when multiple instance of forwarder is running
     _udp_socket: UdpSocket,
+    register_sender: Sender<RegisterMsg>,
 }
 
 impl IcmpSocket {
@@ -52,14 +58,12 @@ impl IcmpSocket {
             .unwrap();
 
         let (tx, rx) = mpsc::channel(PACKET_RECEIVER_CHANNEL_QUEUE_SIZE);
-        let register_sender = IcmpSocket::get_global_register_receiver(&icmp_setting)?;
-        register_sender
-            .send(PortListener {
-                port: address.port(),
-                sender: tx,
-            })
-            .await
-            .unwrap();
+        let register_sender = IcmpSocket::get_global_register_sender(&icmp_setting)?;
+        let message = RegisterMsg::Register(PortListener {
+            port: address.port(),
+            sender: tx,
+        });
+        register_sender.send(message).await.unwrap();
 
         Ok(IcmpSocket {
             socket,
@@ -68,10 +72,11 @@ impl IcmpSocket {
             addr: address,
             setting: icmp_setting,
             _udp_socket: udp_socket,
+            register_sender,
         })
     }
 
-    fn get_global_register_receiver(setting: &IcmpSetting) -> Result<Sender<PortListener>> {
+    fn get_global_register_sender(setting: &IcmpSetting) -> Result<Sender<RegisterMsg>> {
         let mut register_sender = REGISTER_SENDER.lock().unwrap();
         if register_sender.is_none() {
             let (packet_receiver, real_register_sender) = PacketReceiver::new(*setting)?;
@@ -194,5 +199,17 @@ fn into_socket_addr_v4(socket_addr: SocketAddr) -> Result<SocketAddrV4> {
     match socket_addr {
         SocketAddr::V4(addr) => Ok(addr),
         _ => Err(ErrorKind::Other.into()),
+    }
+}
+
+impl Drop for IcmpSocket {
+    fn drop(&mut self) {
+        let sender = self.register_sender.clone();
+        let port = self.addr.port();
+
+        tokio::spawn(async move {
+            let message = RegisterMsg::UnRegister { port };
+            sender.send(message).await.unwrap();
+        });
     }
 }

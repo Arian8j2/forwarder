@@ -1,4 +1,4 @@
-use super::{setting::IcmpSetting, AsyncRawSocket};
+use super::{setting::IcmpSetting, AsyncRawSocket, RegisterMsg};
 use crate::macros::loop_select;
 use crate::server::MAX_PACKET_SIZE;
 use etherparse::{Icmpv4Slice, Ipv4HeaderSlice};
@@ -30,7 +30,7 @@ pub struct OwnnedData {
 pub struct PacketReceiver {
     socket: AsyncRawSocket,
     open_ports: Vec<PortListener>,
-    register_receiver: Receiver<PortListener>,
+    receiver: Receiver<RegisterMsg>,
     setting: IcmpSetting,
 }
 
@@ -38,19 +38,19 @@ impl PacketReceiver {
     /// Returns new `PacketReceiver` with a mpsc sender so
     /// `IcmpSocket` instances can use that sender to register
     /// their ports and receiver
-    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<PortListener>)> {
+    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<RegisterMsg>)> {
         let socket = AsyncRawSocket::new(Domain::IPV4, Protocol::ICMPV4)?;
         let adress = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
         socket.bind(&adress.into())?;
 
-        let (tx, rx) = mpsc::channel::<PortListener>(MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE);
+        let (tx, rx) = mpsc::channel::<RegisterMsg>(MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE);
         info!("new icmp packet receiver");
 
         Ok((
             PacketReceiver {
                 socket,
                 open_ports: Vec::with_capacity(PORT_LISTENERS_BASE_CAPACITY),
-                register_receiver: rx,
+                receiver: rx,
                 setting,
             },
             tx,
@@ -66,12 +66,19 @@ impl PacketReceiver {
         tokio::spawn(async move {
             let mut buffer = [0u8; MAX_PACKET_SIZE];
             loop_select! {
-                new_register = self.register_receiver.recv() => {
-                    let new_register = new_register.unwrap();
-                    let index = self
-                        .search_listener_port(&new_register.port)
-                        .unwrap_err();
-                    self.open_ports.insert(index, new_register);
+                message = self.receiver.recv() => {
+                    match message.unwrap() {
+                        RegisterMsg::Register(new_register) => {
+                            let index = self
+                                .search_listener_port(&new_register.port)
+                                .unwrap_err();
+                            self.open_ports.insert(index, new_register);
+                        },
+                        RegisterMsg::UnRegister { port } => {
+                            let index = self.search_listener_port(&port).unwrap();
+                            self.open_ports.remove(index);
+                        }
+                    }
                 },
                 maybe_len = self.socket.recv(&mut buffer) => {
                     let Ok(len) = maybe_len else {
