@@ -70,7 +70,8 @@ impl Server {
                     ClientToServerMsg::ClientCleanup(addr) => {
                         let index = self.clients.iter().position(|client| client.addr == addr).unwrap();
                         self.clients.remove(index);
-                        log::info!("cleaned client that handled '{addr}'");
+                        let total_clients = self.clients.len();
+                        log::info!("cleaned client that handled '{addr}', now total clients: {total_clients}");
                     }
                 }
             },
