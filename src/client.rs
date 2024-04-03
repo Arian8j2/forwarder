@@ -13,7 +13,7 @@ use std::{
 use tokio::sync::mpsc::{self, Sender};
 
 const MAX_CLIENT_TO_SERVER_CHANNEL_QUEUE_SIZE: usize = 512;
-const CLEANUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 
 pub struct Client {
     real_client_addr: SocketAddr,
