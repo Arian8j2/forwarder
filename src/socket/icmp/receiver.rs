@@ -73,18 +73,7 @@ impl PacketReceiver {
             let mut buffer = [0u8; MAX_PACKET_SIZE];
             loop_select! {
                 message = self.receiver.recv() => {
-                    match message.unwrap() {
-                        RegisterMsg::Register(new_register) => {
-                            let index = self
-                                .search_listener_port(&new_register.port)
-                                .unwrap_err();
-                            self.open_ports.insert(index, new_register);
-                        },
-                        RegisterMsg::UnRegister { port } => {
-                            let index = self.search_listener_port(&port).unwrap();
-                            self.open_ports.remove(index);
-                        }
-                    }
+                    self.handle_port_registration_messages(message.unwrap());
                 },
                 Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
                     let Some((data, port_listener)) = self.handle_packet(&mut buffer, len, from_addr) else {
@@ -98,6 +87,21 @@ impl PacketReceiver {
             }
         });
         Ok(())
+    }
+
+    // each `IcmpSocket` instance register and unregister their ports using channel
+    #[inline]
+    fn handle_port_registration_messages(&mut self, message: RegisterMsg) {
+        match message {
+            RegisterMsg::Register(new_register) => {
+                let index = self.search_listener_port(&new_register.port).unwrap_err();
+                self.open_ports.insert(index, new_register);
+            }
+            RegisterMsg::UnRegister { port } => {
+                let index = self.search_listener_port(&port).unwrap();
+                self.open_ports.remove(index);
+            }
+        }
     }
 
     fn handle_packet(
@@ -152,6 +156,7 @@ impl PacketReceiver {
         Some(())
     }
 
+    #[inline]
     fn parse_icmp_packet<'a>(&self, bytes: &'a [u8]) -> Option<IcmpSlice<'a>> {
         // according to 'icmp6' man page on freebsd (seems like linux does this the same way):
         // 'Incoming packets on the socket are received with the IPv6 header and any extension headers removed'
