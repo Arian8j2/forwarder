@@ -35,11 +35,7 @@ impl FromStr for SocketUri {
             None => SocketProtocol::Udp,
         };
 
-        if protocol == SocketProtocol::Icmp && addr.is_ipv6() {
-            Err("Icmp with ipv6 address is not supported".to_owned())
-        } else {
-            Ok(SocketUri { addr, protocol })
-        }
+        Ok(SocketUri { addr, protocol })
     }
 }
 

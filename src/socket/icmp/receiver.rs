@@ -1,10 +1,10 @@
-use super::{setting::IcmpSetting, AsyncRawSocket, RegisterMsg};
-use crate::macros::loop_select;
-use crate::server::MAX_PACKET_SIZE;
-use etherparse::{Icmpv4Slice, Ipv4HeaderSlice};
+use super::ether_helper::IcmpSlice;
+use super::{setting::IcmpSetting, AsyncRawSocket, IcmpSocket, RegisterMsg};
+use crate::{macros::loop_select, server::MAX_PACKET_SIZE};
+use etherparse::Ipv4HeaderSlice;
 use log::{debug, info};
-use socket2::{Domain, Protocol};
-use std::{io::Result, net::Ipv4Addr, net::SocketAddrV4};
+use socket2::SockAddr;
+use std::{io::Result, net::SocketAddr};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE: usize = 256;
@@ -17,7 +17,7 @@ pub struct PortListener {
 
 #[derive(Debug)]
 pub struct OwnnedData {
-    pub from_addr: SocketAddrV4,
+    pub from_addr: SocketAddr,
     pub packet: Vec<u8>,
 }
 
@@ -32,17 +32,16 @@ pub struct PacketReceiver {
     open_ports: Vec<PortListener>,
     receiver: Receiver<RegisterMsg>,
     setting: IcmpSetting,
+    is_ipv6: bool,
 }
 
 impl PacketReceiver {
     /// Returns new `PacketReceiver` with a mpsc sender so
     /// `IcmpSocket` instances can use that sender to register
     /// their ports and receiver
-    pub fn new(setting: IcmpSetting) -> Result<(Self, Sender<RegisterMsg>)> {
-        let socket = AsyncRawSocket::new(Domain::IPV4, Protocol::ICMPV4)?;
-        let adress = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0);
-        socket.bind(&adress.into())?;
-
+    pub fn new(setting: IcmpSetting, address: SocketAddr) -> Result<(Self, Sender<RegisterMsg>)> {
+        let is_ipv6 = address.is_ipv6();
+        let socket = IcmpSocket::bind_socket(address)?;
         let (tx, rx) = mpsc::channel::<RegisterMsg>(MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE);
         info!("new icmp packet receiver");
 
@@ -52,6 +51,7 @@ impl PacketReceiver {
                 open_ports: Vec::with_capacity(PORT_LISTENERS_BASE_CAPACITY),
                 receiver: rx,
                 setting,
+                is_ipv6,
             },
             tx,
         ))
@@ -80,11 +80,8 @@ impl PacketReceiver {
                         }
                     }
                 },
-                maybe_len = self.socket.recv(&mut buffer) => {
-                    let Ok(len) = maybe_len else {
-                        continue
-                    };
-                    let Some((data, port_listener)) = self.handle_packet(&mut buffer, len) else {
+                Ok((len, from_addr)) = self.socket.recv_from(&mut buffer) => {
+                    let Some((data, port_listener)) = self.handle_packet(&mut buffer, len, from_addr) else {
                         continue
                     };
                     if let Err(_e) = port_listener.sender.send(data).await {
@@ -97,8 +94,13 @@ impl PacketReceiver {
         Ok(())
     }
 
-    fn handle_packet(&self, buffer: &mut [u8], len: usize) -> Option<(OwnnedData, &PortListener)> {
-        let (iph, icmp) = Self::parse_icmpv4_packet(&buffer[..len])?;
+    fn handle_packet(
+        &self,
+        buffer: &mut [u8],
+        len: usize,
+        from_addr: SockAddr,
+    ) -> Option<(OwnnedData, &PortListener)> {
+        let icmp = self.parse_icmp_packet(&buffer[..len])?;
         self.validate_icmp_packet(&icmp)?;
 
         let bytes5to8 = icmp.bytes5to8();
@@ -116,7 +118,8 @@ impl PacketReceiver {
             return None;
         };
 
-        let source_addr = SocketAddrV4::new(iph.source_addr(), source_port);
+        let mut source_addr = from_addr.as_socket().unwrap();
+        source_addr.set_port(source_port);
         let payload_len = icmp.payload().len();
 
         let result = buffer[len - payload_len..len].to_vec();
@@ -127,7 +130,7 @@ impl PacketReceiver {
         Some((data, &self.open_ports[port_listener_index]))
     }
 
-    fn validate_icmp_packet(&self, icmp: &Icmpv4Slice) -> Option<()> {
+    fn validate_icmp_packet(&self, icmp: &IcmpSlice) -> Option<()> {
         let icmp_type = icmp.type_u8();
         if icmp_type != self.setting.icmp_type {
             debug!("unexpected icmp type {icmp_type}");
@@ -142,10 +145,24 @@ impl PacketReceiver {
         Some(())
     }
 
-    fn parse_icmpv4_packet(bytes: &[u8]) -> Option<(Ipv4HeaderSlice, Icmpv4Slice)> {
-        let ip_header = Ipv4HeaderSlice::from_slice(bytes).ok()?;
-        let payload_index: usize = (ip_header.total_len() - ip_header.payload_len()).into();
-        let icmp = Icmpv4Slice::from_slice(&bytes[payload_index..]).ok()?;
-        Some((ip_header, icmp))
+    fn parse_icmp_packet<'a>(&self, bytes: &'a [u8]) -> Option<IcmpSlice<'a>> {
+        // according to 'icmp6' man page on freebsd (seems like linux does this the same way):
+        // 'Incoming packets on the socket are received with the IPv6 header and any extension headers removed'
+        //
+        // but on 'icmp' man page that is for icmpv4, it says:
+        // 'Incoming packets are received with the IP header and options intact.'
+        //
+        // so we need to parse header in icmpv4 but not in icmpv6
+        // why tf??? i don't know, and don't ask me how i found this out
+        let payload_start_index = if self.is_ipv6 {
+            0
+        } else {
+            let ip_header = Ipv4HeaderSlice::from_slice(bytes).ok()?;
+            let payload_len: usize = ip_header.payload_len().into();
+            bytes.len() - payload_len
+        };
+
+        let icmp = IcmpSlice::from_slice(self.is_ipv6, &bytes[payload_start_index..])?;
+        Some(icmp)
     }
 }

@@ -19,12 +19,12 @@ impl AsyncRawSocket {
         self.inner.get_ref().bind(address)
     }
 
-    pub async fn recv(&self, buffer: &mut [u8]) -> Result<usize> {
+    pub async fn recv_from(&self, buffer: &mut [u8]) -> Result<(usize, SockAddr)> {
         self.inner
             .async_io(Interest::READABLE, |inner| {
                 let buffer_maybe_uninit =
                     unsafe { &mut *(buffer as *mut [u8] as *mut [MaybeUninit<u8>]) };
-                inner.recv(buffer_maybe_uninit)
+                inner.recv_from(buffer_maybe_uninit)
             })
             .await
     }

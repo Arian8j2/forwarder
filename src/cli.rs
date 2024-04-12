@@ -11,7 +11,7 @@ pub struct Args {
     #[arg(short, long)]
     pub remote_addr: SocketUri,
 
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 128)]
     pub icmp_type: u8,
 
     #[arg(long, default_value_t = 0)]
