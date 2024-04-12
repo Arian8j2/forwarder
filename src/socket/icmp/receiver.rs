@@ -1,5 +1,5 @@
 use super::ether_helper::IcmpSlice;
-use super::{setting::IcmpSetting, AsyncRawSocket, IcmpSocket, RegisterMsg};
+use super::{AsyncRawSocket, IcmpSocket, RegisterMsg};
 use crate::{macros::loop_select, server::MAX_PACKET_SIZE};
 use etherparse::Ipv4HeaderSlice;
 use log::{debug, info};
@@ -31,27 +31,33 @@ pub struct PacketReceiver {
     socket: AsyncRawSocket,
     open_ports: Vec<PortListener>,
     receiver: Receiver<RegisterMsg>,
-    setting: IcmpSetting,
     is_ipv6: bool,
+    correct_icmp_type: u8,
 }
 
 impl PacketReceiver {
     /// Returns new `PacketReceiver` with a mpsc sender so
     /// `IcmpSocket` instances can use that sender to register
     /// their ports and receiver
-    pub fn new(setting: IcmpSetting, address: SocketAddr) -> Result<(Self, Sender<RegisterMsg>)> {
+    pub fn new(address: SocketAddr) -> Result<(Self, Sender<RegisterMsg>)> {
         let is_ipv6 = address.is_ipv6();
         let socket = IcmpSocket::bind_socket(address)?;
         let (tx, rx) = mpsc::channel::<RegisterMsg>(MAX_PORT_LISTENERS_CHANNEL_QUEUE_SIZE);
         info!("new icmp packet receiver");
+
+        let correct_icmp_type = if is_ipv6 {
+            etherparse::icmpv6::TYPE_ECHO_REQUEST
+        } else {
+            etherparse::icmpv4::TYPE_ECHO_REQUEST
+        };
 
         Ok((
             PacketReceiver {
                 socket,
                 open_ports: Vec::with_capacity(PORT_LISTENERS_BASE_CAPACITY),
                 receiver: rx,
-                setting,
                 is_ipv6,
+                correct_icmp_type,
             },
             tx,
         ))
@@ -130,15 +136,16 @@ impl PacketReceiver {
         Some((data, &self.open_ports[port_listener_index]))
     }
 
+    #[inline]
     fn validate_icmp_packet(&self, icmp: &IcmpSlice) -> Option<()> {
         let icmp_type = icmp.type_u8();
-        if icmp_type != self.setting.icmp_type {
+        if icmp_type != self.correct_icmp_type {
             debug!("unexpected icmp type {icmp_type}");
             return None;
         }
 
         let icmp_code = icmp.code_u8();
-        if icmp_code != self.setting.code {
+        if icmp_code != 0 {
             debug!("unexpected icmp code {icmp_code}");
             return None;
         }

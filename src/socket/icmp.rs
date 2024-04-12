@@ -1,26 +1,23 @@
 mod async_raw;
 mod ether_helper;
 mod receiver;
-pub mod setting;
 
 use super::Socket;
 use async_raw::AsyncRawSocket;
 use async_trait::async_trait;
 use core::panic;
-use etherparse::{IcmpEchoHeader, Icmpv4Type, Icmpv6Type};
+use etherparse::{IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type};
 use lazy_static::lazy_static;
 use receiver::{OwnnedData, PacketReceiver, PortListener};
-use setting::{IcmpSetting, ICMP_SETTING};
 use socket2::{Domain, Protocol, SockAddr};
 use std::{
-    io::{Error, ErrorKind, Result},
-    net::SocketAddr,
+    io::{ErrorKind, Result},
+    net::{SocketAddr, SocketAddrV6},
     sync::Mutex,
 };
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
-const ICMPV4_HEADER_LEN_WITHOUT_DATA: usize = 8;
 const PACKET_RECEIVER_CHANNEL_QUEUE_SIZE: usize = 128;
 
 lazy_static! {
@@ -38,7 +35,6 @@ pub struct IcmpSocket {
     socket: AsyncRawSocket,
     receiver: Receiver<OwnnedData>,
     connected_addr: Option<SocketAddr>,
-    setting: IcmpSetting,
     // we hold a udp socket with same address as icmp socket to
     // stop using same ports when multiple instance of forwarder is running
     _udp_socket: UdpSocket,
@@ -51,13 +47,8 @@ impl IcmpSocket {
         let address = udp_socket.local_addr()?;
 
         let socket = IcmpSocket::bind_socket(address)?;
-        let icmp_setting = ICMP_SETTING
-            .lock()
-            .map_err(|_| Error::from(ErrorKind::Other))?
-            .unwrap();
-
         let (tx, rx) = mpsc::channel(PACKET_RECEIVER_CHANNEL_QUEUE_SIZE);
-        let register_sender = IcmpSocket::get_global_register_sender(&icmp_setting, &address)?;
+        let register_sender = IcmpSocket::get_global_register_sender(&address)?;
         let message = RegisterMsg::Register(PortListener {
             port: address.port(),
             sender: tx,
@@ -69,7 +60,6 @@ impl IcmpSocket {
             receiver: rx,
             connected_addr: None,
             addr: address,
-            setting: icmp_setting,
             _udp_socket: udp_socket,
             register_sender,
         })
@@ -85,15 +75,12 @@ impl IcmpSocket {
         Ok(socket)
     }
 
-    fn get_global_register_sender(
-        setting: &IcmpSetting,
-        address: &SocketAddr,
-    ) -> Result<Sender<RegisterMsg>> {
+    fn get_global_register_sender(address: &SocketAddr) -> Result<Sender<RegisterMsg>> {
         let mut register_sender = REGISTER_SENDER.lock().unwrap();
         if register_sender.is_none() {
             // receiver has same address of first IcmpSocket for no specific reason
             // just need to make sure that if first IcmpSocket is ipv4 then receiver has to be ipv4
-            let (packet_receiver, real_register_sender) = PacketReceiver::new(*setting, *address)?;
+            let (packet_receiver, real_register_sender) = PacketReceiver::new(*address)?;
             packet_receiver.run()?;
             *register_sender = Some(real_register_sender);
         }
@@ -106,70 +93,38 @@ impl IcmpSocket {
         source_addr: &SocketAddr,
         dst_addr: &SocketAddr,
     ) -> Result<Vec<u8>> {
-        let bytes5to8 = IcmpEchoHeader {
+        let echo_header = IcmpEchoHeader {
             id: dst_addr.port(),
             seq: source_addr.port(),
-        }
-        .to_bytes();
-
-        let mut result = vec![0u8; ICMPV4_HEADER_LEN_WITHOUT_DATA + payload.len()];
-        let checksum = if self.setting.ignore_checksum {
-            [0, 0]
-        } else {
-            match source_addr {
-                SocketAddr::V4(_) => self.calc_icmpv4_checksum(bytes5to8, payload).to_be_bytes(),
-                SocketAddr::V6(source_addr) => {
-                    let source_addr_bytes = source_addr.ip().octets();
-                    let SocketAddr::V6(dst_addr) = dst_addr else {
-                        unreachable!()
-                    };
-                    let dst_addr_bytes = dst_addr.ip().octets();
-                    self.calc_icmpv6_checksum(bytes5to8, source_addr_bytes, dst_addr_bytes, payload)
-                        .to_be_bytes()
-                }
-            }
         };
 
-        //  0                   1                   2                   3
-        //  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-        // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        // |     Type      |     Code      |          Checksum             |
-        // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        // |           Identifier          |        Sequence Number        |
-        // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-        // |     Data ...
-        // +-+-+-+-+-
-        result[0] = self.setting.icmp_type;
-        result[1] = self.setting.code;
-        result[2..4].copy_from_slice(&checksum);
-        result[4..8].copy_from_slice(&bytes5to8);
-        result[8..].copy_from_slice(payload);
-        Ok(result.to_vec())
-    }
+        // TODO: rewrite this part to use fewer allocations
+        let icmp_header = if source_addr.is_ipv4() {
+            let icmp_type = Icmpv4Type::EchoRequest(echo_header);
+            Icmpv4Header::with_checksum(icmp_type, payload)
+                .to_bytes()
+                .to_vec()
+        } else {
+            let icmp_type = Icmpv6Type::EchoRequest(echo_header);
+            let source_ip = as_socket_addr_v6(*source_addr).ip().octets();
+            let destination_ip = as_socket_addr_v6(*dst_addr).ip().octets();
+            Icmpv6Header::with_checksum(icmp_type, source_ip, destination_ip, payload)
+                .unwrap()
+                .to_bytes()
+                .to_vec()
+        };
 
-    fn calc_icmpv4_checksum(&self, bytes5to8: [u8; 4], payload: &[u8]) -> u16 {
-        Icmpv4Type::Unknown {
-            code_u8: self.setting.code,
-            type_u8: self.setting.icmp_type,
-            bytes5to8,
-        }
-        .calc_checksum(payload)
+        let mut header_and_payload = Vec::with_capacity(icmp_header.len() + payload.len());
+        header_and_payload.extend_from_slice(&icmp_header);
+        header_and_payload.extend_from_slice(payload);
+        Ok(header_and_payload)
     }
+}
 
-    fn calc_icmpv6_checksum(
-        &self,
-        bytes5to8: [u8; 4],
-        source_ip: [u8; 16],
-        destination_ip: [u8; 16],
-        payload: &[u8],
-    ) -> u16 {
-        Icmpv6Type::Unknown {
-            code_u8: self.setting.code,
-            type_u8: self.setting.icmp_type,
-            bytes5to8,
-        }
-        .calc_checksum(source_ip, destination_ip, payload)
-        .unwrap() // payload is never that large to panic
+fn as_socket_addr_v6(socket_addr: SocketAddr) -> SocketAddrV6 {
+    match socket_addr {
+        SocketAddr::V6(v6_addr) => v6_addr,
+        SocketAddr::V4(_) => panic!("as_socket_addr_v6 called on ipv4 address"),
     }
 }
 

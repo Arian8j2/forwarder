@@ -70,24 +70,6 @@ async fn test_redirect_packets_via_icmp_v6() {
     test_udp_handshake(connect_to, real_server_addr).await;
 }
 
-#[ignore = "requires root access, beacuse it has to deal with raw socket"]
-#[tokio::test(flavor = "multi_thread")]
-#[should_panic]
-async fn test_redirect_packets_via_icmp_with_non_matched_codes_should_fail() {
-    let _f1_child = spawn_forwarder(
-        "-l 127.0.0.1:10004/udp -r 127.0.0.1:30004/icmp -p password --icmp-code 10",
-    )
-    .unwrap();
-    let _f2_child =
-        spawn_forwarder("-l 127.0.0.1:30004/icmp -r 127.0.0.1:8080/udp -p password --icmp-code 20")
-            .unwrap();
-
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    let real_server_addr = SocketAddrV4::from_str("127.0.0.1:8080").unwrap();
-    let connect_to = SocketAddrV4::from_str("127.0.0.1:10004").unwrap();
-    test_udp_handshake(connect_to, real_server_addr).await;
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn test_redirect_packets_via_udp_ipv6() {
     let _f1_child =

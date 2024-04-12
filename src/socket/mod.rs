@@ -18,4 +18,3 @@ pub(crate) use uri::SocketUri;
 
 mod icmp;
 mod udp;
-pub(crate) use icmp::setting::IcmpSettingSetter;

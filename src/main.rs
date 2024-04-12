@@ -11,7 +11,6 @@ use cli::Args;
 use log::{info, LevelFilter};
 use server::Server;
 use simple_logger::SimpleLogger;
-use socket::IcmpSettingSetter;
 use std::{env, str::FromStr};
 
 #[tokio::main(flavor = "multi_thread")]
@@ -24,8 +23,6 @@ async fn main() -> Result<()> {
 
     log_version();
     let cli = Args::parse();
-    cli.set_icmp_setting()?;
-
     let mut server = Server::new(cli.listen_addr).await?;
     if let Some(passphrase) = cli.passphrase {
         server.set_passphrase(&passphrase);
