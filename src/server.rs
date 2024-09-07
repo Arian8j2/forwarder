@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const MAX_SERVER_CHANNEL_QUEUE_SIZE: usize = 1024;
 const CLIENTS_BASE_CAPACITY: usize = 100;
-pub const MAX_PACKET_SIZE: usize = 2048;
+pub const MAX_PACKET_SIZE: usize = 65535;
 
 pub enum ClientToServerMsg {
     DataFromRealServer { data: Vec<u8>, target: SocketAddr },
