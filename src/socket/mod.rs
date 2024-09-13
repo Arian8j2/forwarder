@@ -16,5 +16,5 @@ mod uri;
 pub(crate) use protocol::SocketProtocol;
 pub(crate) use uri::SocketUri;
 
-mod icmp;
+// mod icmp;
 mod udp;
