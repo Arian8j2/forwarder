@@ -9,9 +9,9 @@ pub enum SocketProtocol {
 }
 
 impl SocketProtocol {
-    pub async fn bind(self, addr: &SocketAddr) -> Result<Box<dyn Socket>> {
-        let socket: Box<dyn Socket> = match self {
-            SocketProtocol::Udp => Box::new(UdpSocket::bind(addr).await?),
+    pub fn bind(self, addr: &SocketAddr) -> Result<Socket> {
+        let socket = match self {
+            SocketProtocol::Udp => Socket::Udp(UdpSocket::bind(addr)?),
             // SocketProtocol::Icmp => Box::new(IcmpSocket::bind(addr).await?),
         };
         Ok(socket)

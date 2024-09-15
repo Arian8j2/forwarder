@@ -1,7 +1,6 @@
 mod cli;
-mod client;
 mod encryption;
-mod macros;
+mod peer;
 mod server;
 mod socket;
 
@@ -9,12 +8,10 @@ use anyhow::Result;
 use clap::Parser;
 use cli::Args;
 use log::{info, LevelFilter};
-use server::Server;
 use simple_logger::SimpleLogger;
 use std::{env, str::FromStr};
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let log_level = env::var("RUST_LOG").unwrap_or("info".to_owned());
     SimpleLogger::new()
         .with_level(LevelFilter::from_str(&log_level)?)
@@ -23,12 +20,7 @@ async fn main() -> Result<()> {
 
     log_version();
     let cli = Args::parse();
-    let mut server = Server::new(cli.listen_addr).await?;
-    if let Some(passphrase) = cli.passphrase {
-        server.set_passphrase(&passphrase);
-    }
-
-    server.run(cli.remote_addr).await;
+    server::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
     Ok(())
 }
 
