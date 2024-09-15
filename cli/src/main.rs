@@ -1,15 +1,26 @@
-mod cli;
-mod encryption;
-mod peer;
-mod server;
-mod socket;
-
 use anyhow::Result;
 use clap::Parser;
-use cli::Args;
 use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::{env, str::FromStr};
+
+/// Simple program to forward udp packets
+#[derive(Parser)]
+#[command(about)]
+pub struct Args {
+    #[arg(short, long)]
+    pub listen_addr: lib::socket::SocketUri,
+
+    #[arg(short, long)]
+    pub remote_addr: lib::socket::SocketUri,
+
+    #[arg(
+        short,
+        long,
+        help = "The packets will get encrypted/decrypted by this passphrase"
+    )]
+    pub passphrase: Option<String>,
+}
 
 fn main() -> Result<()> {
     let log_level = env::var("RUST_LOG").unwrap_or("info".to_owned());
@@ -20,7 +31,7 @@ fn main() -> Result<()> {
 
     log_version();
     let cli = Args::parse();
-    server::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
+    lib::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
     Ok(())
 }
 

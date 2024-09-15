@@ -8,7 +8,7 @@ COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
 FROM alpine:3.17 as runtime
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/forwarder forwarder
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/cli forwarder
 
 ENV LISTEN_ADDR=0.0.0.0:1001 \
     REDIRECT_ADDR=127.0.0.1:8585 \

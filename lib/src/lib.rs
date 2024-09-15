@@ -1,13 +1,16 @@
-use crate::{
-    encryption,
-    peer::{Peer, PeerManager},
-    socket::{Socket, SocketTrait, SocketUri},
-};
+mod encryption;
+mod peer;
+pub mod socket;
+
 use anyhow::Context;
 use log::info;
 use mio::{unix::SourceFd, Events, Interest, Poll, Registry};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use std::{net::SocketAddr, sync::Arc};
+use {
+    peer::{Peer, PeerManager},
+    socket::{Socket, SocketTrait, SocketUri},
+};
 
 const EPOLL_EVENTS_CAPACITY: usize = 1024;
 pub const MAX_PACKET_SIZE: usize = 65535;

@@ -1,0 +1,14 @@
+[package]
+name = "lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.71"
+lazy_static = "1.4.0"
+log = "0.4.20"
+etherparse = "0.13.0"
+socket2 = "0.5.5"
+mio = { version = "1.0.2", features = ["net", "os-ext", "os-poll"] }
+enum_dispatch = "0.3.13"
+parking_lot = "0.12.3"
