@@ -25,10 +25,10 @@ impl Peer {
                 SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
             }
         };
-        let socket = remote_uri.protocol.bind(&addr)?;
+        let mut socket = remote_uri.protocol.bind(&addr)?;
         socket.connect(&remote_uri.addr)?;
         socket.set_nonblocking(true)?;
-        let token = Token(socket.as_raw_fd() as usize);
+        let token = socket.unique_token();
         let peer = Self {
             socket,
             token,

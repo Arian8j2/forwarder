@@ -4,7 +4,7 @@ pub mod socket;
 
 use anyhow::Context;
 use log::info;
-use mio::{unix::SourceFd, Events, Interest, Poll, Registry};
+use mio::{Events, Poll, Registry};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use std::{net::SocketAddr, sync::Arc};
 use {
@@ -82,15 +82,12 @@ fn add_new_peer(
     mut peers: RwLockWriteGuard<PeerManager>,
     registry: &Registry,
 ) -> anyhow::Result<Arc<Peer>> {
-    let (new_peer, token) = Peer::create(&remote_uri, from_addr)?;
-    let peer = peers.add_peer(new_peer);
-    registry
-        .register(
-            &mut SourceFd(&peer.socket.as_raw_fd()),
-            token,
-            Interest::READABLE,
-        )
+    let (mut new_peer, token) = Peer::create(&remote_uri, from_addr)?;
+    new_peer
+        .socket
+        .register(registry, token)
         .with_context(|| "couldn't add new peer to mio registry")?;
+    let peer = peers.add_peer(new_peer);
     Ok(peer)
 }
 
@@ -119,7 +116,7 @@ fn peers_thread(
             let token = event.token();
             let peer = peers.find_peer_with_token(&token).unwrap();
             // each epoll event may result in multiple readiness events
-            while let Ok((size, _)) = peer.socket.recv_from(&mut buffer) {
+            while let Ok(size) = peer.socket.recv(&mut buffer) {
                 // client <--server socket--- peer <----- remote
                 server_socket.send_to(&buffer[..size], peer.get_client_addr())?;
             }

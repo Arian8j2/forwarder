@@ -216,7 +216,6 @@ dependencies = [
  "anyhow",
  "enum_dispatch",
  "etherparse",
- "lazy_static",
  "log",
  "mio",
  "parking_lot",

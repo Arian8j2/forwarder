@@ -1,4 +1,5 @@
 use super::SocketTrait;
+use mio::{unix::SourceFd, Interest};
 use std::{io, net::SocketAddr, os::fd::AsRawFd};
 
 #[derive(Debug)]
@@ -28,7 +29,7 @@ impl SocketTrait for UdpSocket {
         self.0.send(buffer)
     }
 
-    fn connect(&self, addr: &SocketAddr) -> io::Result<()> {
+    fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
         self.0.connect(addr)
     }
 
@@ -36,11 +37,19 @@ impl SocketTrait for UdpSocket {
         self.0.local_addr()
     }
 
-    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+    fn set_nonblocking(&mut self, nonblocking: bool) -> io::Result<()> {
         self.0.set_nonblocking(nonblocking)
     }
 
-    fn as_raw_fd(&self) -> i32 {
-        self.0.as_raw_fd()
+    fn unique_token(&self) -> mio::Token {
+        mio::Token(self.0.as_raw_fd() as usize)
+    }
+
+    fn register(&mut self, registry: &mio::Registry, token: mio::Token) -> io::Result<()> {
+        registry.register(
+            &mut SourceFd(&self.0.as_raw_fd()),
+            token,
+            Interest::READABLE,
+        )
     }
 }

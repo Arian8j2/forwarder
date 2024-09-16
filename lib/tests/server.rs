@@ -1,5 +1,10 @@
 use lib::{run_server, socket::SocketUri};
-use std::{io::ErrorKind, net::UdpSocket, str::FromStr, time::Duration};
+use std::{
+    io::ErrorKind,
+    net::{SocketAddr, UdpSocket},
+    str::FromStr,
+    time::Duration,
+};
 
 #[test]
 fn test_udp_forwarder() {
@@ -92,7 +97,23 @@ fn test_udp_double_forwarder_back_and_forth() {
     let forwarder_uri = SocketUri::from_str("127.0.0.1:38806/udp").unwrap();
     let second_forwarder_uri = SocketUri::from_str("127.0.0.1:38807/udp").unwrap();
     let remote_uri = SocketUri::from_str("127.0.0.1:38808/udp").unwrap();
+    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+}
 
+#[test]
+#[ignore = "icmp sockets requires special access, please run this test with ./test_icmp.sh"]
+fn test_icmp_double_forwarder_back_and_forth() {
+    let forwarder_uri = SocketUri::from_str("127.0.0.1:38809/udp").unwrap();
+    let second_forwarder_uri = SocketUri::from_str("127.0.0.1:38810/icmp").unwrap();
+    let remote_uri = SocketUri::from_str("127.0.0.1:38811/udp").unwrap();
+    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+}
+
+fn spawn_double_forwarder_and_test_connection(
+    forwarder_uri: SocketUri,
+    second_forwarder_uri: SocketUri,
+    remote_uri: SocketUri,
+) {
     std::thread::spawn(move || {
         run_server(
             forwarder_uri,
@@ -109,28 +130,34 @@ fn test_udp_double_forwarder_back_and_forth() {
         )
         .unwrap();
     });
+    test_connection(&forwarder_uri.addr, &remote_uri.addr);
+}
 
-    let remote = UdpSocket::bind(remote_uri.addr).unwrap();
-    remote
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .unwrap();
+fn test_connection(forwarder_addr: &SocketAddr, remote_addr: &SocketAddr) {
+    let timeout = Duration::from_secs(2);
+    let remote = UdpSocket::bind(remote_addr).unwrap();
+    remote.set_read_timeout(Some(timeout)).unwrap();
     std::thread::spawn(move || {
         let mut buffer = [0u8; 100];
-        let (size, from_addr) = remote.recv_from(&mut buffer).unwrap();
+        let (size, from_addr) = remote
+            .recv_from(&mut buffer)
+            .map_err(|_| "remote didn't received any message")
+            .unwrap();
         assert_eq!(&buffer[..size], "hello".as_bytes());
         remote.send_to("hi".as_bytes(), from_addr).unwrap();
     });
 
     // wait for remote thread to start listening
-    std::thread::sleep(Duration::from_millis(200));
+    std::thread::sleep(Duration::from_millis(400));
 
     let client = UdpSocket::bind("127.0.0.1:0").unwrap();
-    client.connect(forwarder_uri.addr).unwrap();
+    client.connect(forwarder_addr).unwrap();
     client.send("hello".as_bytes()).unwrap();
     let mut buffer = [0u8; 100];
-    client
-        .set_read_timeout(Some(Duration::from_secs(2)))
+    client.set_read_timeout(Some(timeout)).unwrap();
+    let size = client
+        .recv(&mut buffer)
+        .map_err(|_| "client didn't receive hello back from remote")
         .unwrap();
-    let size = client.recv(&mut buffer).unwrap();
     assert_eq!(&buffer[..size], "hi".as_bytes());
 }

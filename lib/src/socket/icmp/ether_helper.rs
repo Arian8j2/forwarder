@@ -1,6 +1,5 @@
 use etherparse::{Icmpv4Slice, Icmpv6Slice};
 
-/// ```
 /// // translates this
 /// call_inner_method!(self, code_u8())
 ///
@@ -10,7 +9,6 @@ use etherparse::{Icmpv4Slice, Icmpv6Slice};
 ///     Self::V4(slice) => slice.code_u8(),
 ///     Self::V6(slice) => slice.code_u8(),
 /// }
-/// ```
 macro_rules! call_inner_method {
     ($self:expr, $($tokens:tt)*) => {
         match $self {
