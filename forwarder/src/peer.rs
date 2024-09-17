@@ -4,7 +4,7 @@ use std::{
     borrow::Borrow,
     collections::BTreeMap,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 #[derive(Debug)]
@@ -12,6 +12,7 @@ pub struct Peer {
     pub socket: Socket,
     client_addr: SocketAddr,
     token: Token,
+    pub used: AtomicBool,
 }
 
 impl Peer {
@@ -33,6 +34,7 @@ impl Peer {
             socket,
             token,
             client_addr,
+            used: AtomicBool::new(true),
         };
         Ok((peer, token))
     }
@@ -40,8 +42,17 @@ impl Peer {
     pub fn get_client_addr(&self) -> &SocketAddr {
         &self.client_addr
     }
+
+    pub fn get_token(&self) -> &Token {
+        &self.token
+    }
 }
 
+// we keep multiple `BTreeMap`s because on server we
+// need to find peer based on `client_addr` and on peer
+// side we need to find peer based on `token` so the
+// fastest way (i think) is to have multiple maps that
+// points to same `Peer`
 #[derive(Debug)]
 pub struct PeerManager {
     client_addr_to_peers: BTreeMap<SocketAddr, Arc<Peer>>,
@@ -73,5 +84,14 @@ impl PeerManager {
 
     pub fn find_peer_with_token(&self, token: &Token) -> Option<&Peer> {
         self.token_to_peers.get(token).map(|peer| peer.borrow())
+    }
+
+    pub fn get_all(&self) -> Vec<Arc<Peer>> {
+        self.client_addr_to_peers.values().cloned().collect()
+    }
+
+    pub fn remove_peer(&mut self, client_addr: &SocketAddr, token: &Token) {
+        self.client_addr_to_peers.remove(client_addr);
+        self.token_to_peers.remove(token);
     }
 }

@@ -6,7 +6,11 @@ use anyhow::Context;
 use log::info;
 use mio::{Events, Poll, Registry};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
 use {
     peer::{Peer, PeerManager},
     socket::{Socket, SocketTrait, SocketUri},
@@ -14,6 +18,7 @@ use {
 
 const EPOLL_EVENTS_CAPACITY: usize = 1024;
 pub const MAX_PACKET_SIZE: usize = 65535;
+const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
 pub fn run_server(
     listen_uri: SocketUri,
@@ -35,12 +40,15 @@ pub fn run_server(
         .with_context(|| "couldn't copy mio registry")?;
 
     let peer_manager: Arc<RwLock<PeerManager>> = Arc::new(RwLock::new(PeerManager::new()));
-    // spawning peers thread
     {
         let peer_manager = peer_manager.clone();
         let server_socket = socket.clone();
         std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket))
     };
+    {
+        let peer_manager = peer_manager.clone();
+        std::thread::spawn(|| cleanup_thread(peer_manager));
+    }
 
     let mut buffer = [0u8; MAX_PACKET_SIZE];
     loop {
@@ -56,6 +64,7 @@ pub fn run_server(
         let peers = peer_manager.upgradable_read();
         match peers.find_peer_with_client_addr(&from_addr) {
             Some(peer) => {
+                peer.used.store(true, Ordering::Relaxed);
                 // client ---> server socket ---peer socket----> remote
                 peer.socket.send(&buffer[..size]).ok();
             }
@@ -69,6 +78,8 @@ pub fn run_server(
                         continue;
                     }
                 };
+                // peer is just created so the `used` is true
+                // and doesn't need to set it
                 peer.socket.send(&buffer[..size]).ok();
             }
         };
@@ -115,11 +126,49 @@ fn peers_thread(
         for event in &events {
             let token = event.token();
             let peer = peers.find_peer_with_token(&token).unwrap();
+            peer.used.store(true, Ordering::Relaxed);
             // each epoll event may result in multiple readiness events
             while let Ok(size) = peer.socket.recv(&mut buffer) {
                 // client <--server socket--- peer <----- remote
                 server_socket.send_to(&buffer[..size], peer.get_client_addr())?;
             }
+        }
+    }
+}
+
+/// run cleanup thread
+fn cleanup_thread(peer_manager: Arc<RwLock<PeerManager>>) {
+    loop {
+        std::thread::sleep(CLEANUP_INTERVAL);
+        try_cleanup(&peer_manager);
+    }
+}
+
+/// try cleaning peers that has not been used for about `CLEANUP_INTERVAL` duration.
+fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
+    let peers = peer_manager.read();
+    let notused_peers: Vec<Arc<Peer>> = peers
+        .get_all()
+        .into_iter()
+        .filter(|peer| {
+            peer.used
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                    if used {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                })
+                .is_err()
+        })
+        .collect();
+    drop(peers);
+    if !notused_peers.is_empty() {
+        let mut peers = peer_manager.write();
+        for peer in notused_peers {
+            let client_addr = peer.get_client_addr();
+            log::info!("cleaning peer that handled '{client_addr}'");
+            peers.remove_peer(client_addr, peer.get_token());
         }
     }
 }
