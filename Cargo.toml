@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cli", "lib"]
+members = ["forwarder-cli", "forwarder"]
 
 [profile.release]
 panic = "abort"

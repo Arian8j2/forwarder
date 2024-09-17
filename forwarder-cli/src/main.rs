@@ -9,10 +9,10 @@ use std::{env, str::FromStr};
 #[command(about)]
 pub struct Args {
     #[arg(short, long)]
-    pub listen_addr: lib::socket::SocketUri,
+    pub listen_addr: forwarder::socket::SocketUri,
 
     #[arg(short, long)]
-    pub remote_addr: lib::socket::SocketUri,
+    pub remote_addr: forwarder::socket::SocketUri,
 
     #[arg(
         short,
@@ -31,7 +31,7 @@ fn main() -> Result<()> {
 
     log_version();
     let cli = Args::parse();
-    lib::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
+    forwarder::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
     Ok(())
 }
 

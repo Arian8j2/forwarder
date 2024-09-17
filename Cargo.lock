@@ -122,18 +122,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 
 [[package]]
-name = "cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "lib",
- "log",
- "simple_logger",
- "vergen",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -180,6 +168,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "forwarder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "enum_dispatch",
+ "etherparse",
+ "log",
+ "mio",
+ "parking_lot",
+ "socket2",
+]
+
+[[package]]
+name = "forwarder-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "forwarder",
+ "log",
+ "simple_logger",
+ "vergen",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -208,19 +221,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "lib"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "enum_dispatch",
- "etherparse",
- "log",
- "mio",
- "parking_lot",
- "socket2",
-]
 
 [[package]]
 name = "libc"
