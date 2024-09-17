@@ -1,4 +1,4 @@
-use lib::{run_server, socket::SocketUri};
+use forwarder::{run_server, socket::SocketUri};
 use std::{
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
