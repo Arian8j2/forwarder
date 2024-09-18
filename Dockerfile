@@ -5,7 +5,7 @@ RUN apk add --no-cache musl-dev git
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN cargo build --release --package forwarder-cli --target x86_64-unknown-linux-musl
 
 FROM alpine:3.20 as runtime
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/forwarder-cli forwarder
