@@ -146,26 +146,19 @@ fn cleanup_thread(peer_manager: Arc<RwLock<PeerManager>>) {
 
 /// try cleaning peers that has not been used for about `CLEANUP_INTERVAL` duration.
 fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
-    let peers = peer_manager.read();
-    let notused_peers: Vec<Arc<Peer>> = peers
-        .get_all()
-        .into_iter()
-        .filter(|peer| {
-            peer.used
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                    if used {
-                        Some(false)
-                    } else {
-                        None
-                    }
-                })
-                .is_err()
-        })
-        .collect();
-    drop(peers);
-    if !notused_peers.is_empty() {
-        let mut peers = peer_manager.write();
-        for peer in notused_peers {
+    let mut peers = peer_manager.write();
+    for peer in peers.get_all() {
+        let result = peer
+            .used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                if used {
+                    Some(false)
+                } else {
+                    None
+                }
+            });
+        // `used` was false
+        if result.is_err() {
             let client_addr = peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");
             peers.remove_peer(client_addr, peer.get_token());
