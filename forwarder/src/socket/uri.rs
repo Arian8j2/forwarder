@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use super::SocketProtocol;
 use std::{net::SocketAddr, str::FromStr};
 
@@ -15,23 +16,22 @@ impl SocketUri {
 }
 
 impl FromStr for SocketUri {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         let parts: Vec<&str> = s.split('/').collect();
-        if parts.len() > 2 {
-            return Err(
-                "There are more parts than two, You can only use slash once in uri".to_owned(),
-            );
-        }
+        ensure!(
+            parts.len() <= 2,
+            "there are more parts than two, you can only use slash once in uri"
+        );
 
-        let addr_str = parts
-            .first()
-            .ok_or("Uri need to have address part like '127.0.0.1'")?;
-        let addr = SocketAddr::from_str(addr_str).map_err(|e| e.to_string())?;
+        let addr_str = parts.first().ok_or(anyhow::anyhow!(
+            "uri need to have address part like '127.0.0.1:8080'"
+        ))?;
+        let addr = SocketAddr::from_str(addr_str)?;
 
         let protocol = match parts.get(1) {
             Some(protocol_str) => SocketProtocol::from_str(protocol_str)?,
+            // if protocol is not provided we consider it's udp
             None => SocketProtocol::Udp,
         };
 
@@ -40,8 +40,7 @@ impl FromStr for SocketUri {
 }
 
 impl TryFrom<&str> for SocketUri {
-    type Error = String;
-
+    type Error = anyhow::Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::from_str(value)
     }
