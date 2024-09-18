@@ -160,6 +160,7 @@ fn cleanup_thread(peer_manager: Arc<RwLock<PeerManager>>) {
 /// try cleaning peers that has not been used for about `CLEANUP_INTERVAL` duration.
 fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
     let mut peers = peer_manager.write();
+    let mut used_client_count = 0;
     for peer in peers.get_all() {
         let result = peer
             .used
@@ -175,6 +176,9 @@ fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
             let client_addr = peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");
             peers.remove_peer(client_addr, peer.get_token());
+        } else {
+            used_client_count += 1;
         }
     }
+    log::info!("{used_client_count} clients remaining after cleanup");
 }
