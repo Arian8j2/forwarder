@@ -18,26 +18,29 @@ use {
 
 const EPOLL_EVENTS_CAPACITY: usize = 1024;
 pub const MAX_PACKET_SIZE: usize = 65535;
+/// interval that cleanup happens, also lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
-pub fn run_server(
-    listen_uri: SocketUri,
-    remote_uri: SocketUri,
-    passphrase: Option<String>,
-) -> anyhow::Result<()> {
+/// runs a forwarder server that listens on `listen_uri` and forwards
+/// all incoming packets to `remote_uri` and also forwards all packets
+/// that `remote_uri` returns to client that initiated the connection
+///
+/// # Be careful
+/// this function blocks the whole thread and doesn't stop until something panics
+pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Option<String>) {
     let listen_addr = &listen_uri.addr;
     let socket = listen_uri
         .protocol
         .bind(&listen_addr)
-        .with_context(|| format!("couldn't listen on '{listen_addr}'"))?;
+        .expect(&format!("couldn't listen on '{listen_addr}'"));
     let socket = Arc::new(socket);
     info!("listen on '{listen_addr}'");
 
-    let poll = Poll::new().with_context(|| "couldn't create epoll")?;
+    let poll = Poll::new().expect("cannot create epoll");
     let registry = poll
         .registry()
         .try_clone()
-        .with_context(|| "couldn't copy mio registry")?;
+        .expect("couldn't copy mio registry");
 
     let peer_manager: Arc<RwLock<PeerManager>> = Arc::new(RwLock::new(PeerManager::new()));
     {

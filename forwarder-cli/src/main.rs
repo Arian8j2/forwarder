@@ -31,7 +31,7 @@ fn main() -> Result<()> {
 
     log_version();
     let cli = Args::parse();
-    forwarder::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase)?;
+    forwarder::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase);
     Ok(())
 }
 
