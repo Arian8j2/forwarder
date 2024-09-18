@@ -1,0 +1,9 @@
+[package]
+name = "forwarder-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+forwarder = { path = "../forwarder" }
+socket2 = { version = "0.5.5", features = ["all"] }
+anyhow = "1.0.71"

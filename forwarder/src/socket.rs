@@ -23,7 +23,7 @@ pub enum Socket {
 
 mod protocol;
 mod uri;
-pub(crate) use protocol::SocketProtocol;
+pub use protocol::SocketProtocol;
 pub use uri::SocketUri;
 
 mod icmp;

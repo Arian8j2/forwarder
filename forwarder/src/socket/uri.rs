@@ -1,6 +1,6 @@
-use anyhow::ensure;
 use super::SocketProtocol;
-use std::{net::SocketAddr, str::FromStr};
+use anyhow::ensure;
+use std::{fmt::Display, net::SocketAddr, str::FromStr};
 
 #[derive(Clone, Copy, Debug)]
 pub struct SocketUri {
@@ -36,6 +36,12 @@ impl FromStr for SocketUri {
         };
 
         Ok(SocketUri { addr, protocol })
+    }
+}
+
+impl Display for SocketUri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.addr, self.protocol)
     }
 }
 
