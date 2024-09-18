@@ -46,7 +46,8 @@ pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Opti
     {
         let peer_manager = peer_manager.clone();
         let server_socket = socket.clone();
-        std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket))
+        let passphrase = passphrase.clone();
+        std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket, passphrase))
     };
     {
         let peer_manager = peer_manager.clone();
@@ -106,8 +107,13 @@ fn add_new_peer(
 }
 
 /// run peers_thread and panic if it exited
-fn try_peers_thread(poll: Poll, peers: Arc<RwLock<PeerManager>>, server_socket: Arc<Socket>) {
-    if let Err(error) = peers_thread(poll, peers, server_socket) {
+fn try_peers_thread(
+    poll: Poll,
+    peers: Arc<RwLock<PeerManager>>,
+    server_socket: Arc<Socket>,
+    passphrase: Option<String>,
+) {
+    if let Err(error) = peers_thread(poll, peers, server_socket, passphrase) {
         log::error!("peers thread exited with error: {error:?}");
         panic!("peers thread exited")
     }
@@ -118,6 +124,7 @@ fn peers_thread(
     mut poll: Poll,
     peers: Arc<RwLock<PeerManager>>,
     server_socket: Arc<Socket>,
+    passphrase: Option<String>,
 ) -> anyhow::Result<()> {
     let mut events = Events::with_capacity(EPOLL_EVENTS_CAPACITY);
     let mut buffer = vec![0u8; MAX_PACKET_SIZE];
@@ -132,6 +139,9 @@ fn peers_thread(
             peer.used.store(true, Ordering::Relaxed);
             // each epoll event may result in multiple readiness events
             while let Ok(size) = peer.socket.recv(&mut buffer) {
+                if let Some(ref passphrase) = passphrase {
+                    encryption::xor_encrypt(&mut buffer[..size], passphrase)
+                }
                 // client <--server socket--- peer <----- remote
                 server_socket.send_to(&buffer[..size], peer.get_client_addr())?;
             }
