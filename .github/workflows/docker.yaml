@@ -3,7 +3,7 @@ name: docker build & push to registry
 on:
   push:
     branches:
-      - main
+      - '*'
 
 jobs:
   build:
@@ -28,9 +28,11 @@ jobs:
           # use path context instead of git because we need git history for Vergen to work
           context: .
           push: true
-          tags: ghcr.io/arian8j2/forwarder:latest
+          tags: ghcr.io/arian8j2/forwarder:${{ env.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        env:
+          TAG: ${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
 
       - name: Delete old packages
         uses: actions/delete-package-versions@v4
@@ -38,3 +40,4 @@ jobs:
           package-name: forwarder
           package-type: container
           min-versions-to-keep: 5
+          delete-only-untagged-versions: true
