@@ -1,47 +1,33 @@
-use super::{ether_helper::IcmpSlice, IcmpSocket, Packet, OPEN_PORTS};
+use super::{ether_helper::IcmpSlice, IcmpSocket, OPEN_PORTS};
 use crate::MAX_PACKET_SIZE;
 use etherparse::Ipv4HeaderSlice;
-use socket2::SockAddr;
 use std::{mem::MaybeUninit, net::SocketAddr};
 
 pub fn run_icmp_receiver(addr: SocketAddr) -> anyhow::Result<()> {
     let is_ipv6 = addr.is_ipv6();
     let socket: socket2::Socket = IcmpSocket::inner_bind(addr)?;
+    let udp_socket = std::net::UdpSocket::bind(SocketAddr::new(addr.ip(), 0))?;
+    udp_socket.set_nonblocking(true)?;
+
     let mut buffer = [0u8; MAX_PACKET_SIZE];
+    let mut addr_buffer = addr;
 
     loop {
-        let Ok((size, from_addr)) =
-            socket.recv_from(unsafe { &mut *(&mut buffer as *mut [u8] as *mut [MaybeUninit<u8>]) })
+        let Ok(size) =
+            socket.recv(unsafe { &mut *(&mut buffer as *mut [u8] as *mut [MaybeUninit<u8>]) })
         else {
             continue;
         };
-
-        let Some(packet) = parse_icmp_packet(&buffer[..size], is_ipv6) else {
+        let Some(icmp_packet) = parse_icmp_packet(&buffer[..size], is_ipv6) else {
             continue;
         };
-        handle_packet(packet, from_addr);
+        let open_ports = OPEN_PORTS.read();
+        let port = icmp_packet.dst_port;
+        if open_ports.contains(&port) {
+            addr_buffer.set_port(port);
+            udp_socket.send_to(icmp_packet.payload, addr_buffer).ok();
+        }
     }
-}
-
-fn handle_packet(icmp: IcmpPacket<'_>, from_addr: SockAddr) -> Option<()> {
-    let open_ports = OPEN_PORTS.write();
-    let controller = open_ports.get(&icmp.dst_port)?;
-
-    let mut source_addr = from_addr.as_socket().unwrap();
-    source_addr.set_port(icmp.src_port);
-
-    let packet = Packet {
-        data: icmp.payload.to_vec(),
-        from_addr: source_addr,
-    };
-    {
-        let mut packets = controller.packets.lock();
-        packets.push_back(packet);
-    }
-    if let Err(error) = controller.waker.wake() {
-        log::warn!("couldn't wake up icmp socket: {error:?}")
-    }
-    Some(())
 }
 
 pub struct IcmpPacket<'a> {
