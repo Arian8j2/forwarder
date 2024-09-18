@@ -162,17 +162,8 @@ fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
     let mut peers = peer_manager.write();
     let mut used_client_count = 0;
     for peer in peers.get_all() {
-        let result = peer
-            .used
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                if used {
-                    Some(false)
-                } else {
-                    None
-                }
-            });
-        // `used` was false
-        if result.is_err() {
+        let used = peer.used.swap(false, Ordering::Relaxed);
+        if !used {
             let client_addr = peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");
             peers.remove_peer(client_addr, peer.get_token());
