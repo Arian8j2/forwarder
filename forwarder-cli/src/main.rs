@@ -1,37 +1,40 @@
-use anyhow::Result;
+use anyhow::Context;
 use clap::Parser;
 use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::{env, str::FromStr};
 
-/// Simple program to forward udp packets
+/// Lightweight UDP forwarder and UDP over ICMP
 #[derive(Parser)]
 #[command(about)]
 pub struct Args {
+    /// Address and protocol that forwarder will listen on
     #[arg(short, long)]
-    pub listen_addr: forwarder::socket::SocketUri,
+    pub listen_uri: forwarder::socket::SocketUri,
 
+    /// Address and protocol of remote server that forwarder will forward to
     #[arg(short, long)]
-    pub remote_addr: forwarder::socket::SocketUri,
+    pub remote_uri: forwarder::socket::SocketUri,
 
-    #[arg(
-        short,
-        long,
-        help = "The packets will get encrypted/decrypted by this passphrase"
-    )]
+    /// The packets will get encrypted/decrypted by this passphrase
+    #[arg(short, long)]
     pub passphrase: Option<String>,
 }
 
-fn main() -> Result<()> {
-    let log_level = env::var("RUST_LOG").unwrap_or("info".to_owned());
-    SimpleLogger::new()
-        .with_level(LevelFilter::from_str(&log_level)?)
-        .init()
-        .unwrap();
-
-    log_version();
+fn main() -> anyhow::Result<()> {
     let cli = Args::parse();
-    forwarder::run_server(cli.listen_addr, cli.remote_addr, cli.passphrase);
+    setup_logger().with_context(|| "couldn't setup logger")?;
+    log_version();
+    forwarder::run_server(cli.listen_uri, cli.remote_uri, cli.passphrase);
+    Ok(())
+}
+
+fn setup_logger() -> anyhow::Result<()> {
+    let log_level = match env::var("RUST_LOG") {
+        Ok(var) => LevelFilter::from_str(&var)?,
+        Err(_) => LevelFilter::Info,
+    };
+    SimpleLogger::new().with_level(log_level).init()?;
     Ok(())
 }
 
