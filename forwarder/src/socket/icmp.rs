@@ -58,7 +58,7 @@ static OPEN_PORTS: RwLock<BTreeMap<u16, Controller>> = RwLock::new(BTreeMap::new
 impl IcmpSocket {
     pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
         let udp_socket = std::net::UdpSocket::bind(addr)?;
-        let socket = IcmpSocket::inner_bind(addr.clone())?;
+        let socket = IcmpSocket::inner_bind(*addr)?;
 
         // run the icmp receiver if it isn't running
         let mut is_receiver_alive = IS_RECEIVER_STARTED.lock();
@@ -117,8 +117,9 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
-        self.socket.connect(&addr.clone().into())?;
-        self.connected_addr = Some(*addr);
+        let addr = *addr;
+        self.socket.connect(&addr.into())?;
+        self.connected_addr = Some(addr);
         Ok(())
     }
 

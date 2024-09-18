@@ -31,8 +31,8 @@ pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Opti
     let listen_addr = &listen_uri.addr;
     let socket = listen_uri
         .protocol
-        .bind(&listen_addr)
-        .expect(&format!("couldn't listen on '{listen_addr}'"));
+        .bind(listen_addr)
+        .unwrap_or_else(|_| panic!("couldn't listen on '{listen_addr}'"));
     let socket = Arc::new(socket);
     info!("listen on '{listen_addr}'");
 
@@ -96,7 +96,7 @@ fn add_new_peer(
     mut peers: RwLockWriteGuard<PeerManager>,
     registry: &Registry,
 ) -> anyhow::Result<Arc<Peer>> {
-    let (mut new_peer, token) = Peer::create(&remote_uri, from_addr)?;
+    let (mut new_peer, token) = Peer::create(remote_uri, from_addr)?;
     new_peer
         .socket
         .register(registry, token)

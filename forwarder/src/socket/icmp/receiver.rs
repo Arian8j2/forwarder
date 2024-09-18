@@ -23,7 +23,7 @@ pub fn run_icmp_receiver(addr: SocketAddr) -> anyhow::Result<()> {
     }
 }
 
-fn handle_packet<'a>(icmp: IcmpPacket<'a>, from_addr: SockAddr) -> Option<()> {
+fn handle_packet(icmp: IcmpPacket<'_>, from_addr: SockAddr) -> Option<()> {
     let open_ports = OPEN_PORTS.write();
     let controller = open_ports.get(&icmp.dst_port)?;
 
@@ -50,7 +50,7 @@ pub struct IcmpPacket<'a> {
     pub dst_port: u16,
 }
 
-pub fn parse_icmp_packet<'a>(packet: &'a [u8], is_ipv6: bool) -> Option<IcmpPacket<'a>> {
+pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool) -> Option<IcmpPacket<'_>> {
     // according to 'icmp6' man page on freebsd (seems like linux does this the same way):
     // 'Incoming packets on the socket are received with the IPv6 header and any extension headers removed'
     //
