@@ -90,9 +90,10 @@ impl Drop for IcmpSocket {
 
 impl SocketTrait for IcmpSocket {
     fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {
-        if self.is_blocking {
-            unimplemented!("currently IcmpSocket::recv in blocking mode is not being used")
-        }
+        assert!(
+            !self.is_blocking,
+            "IcmpSocket::recv was called in blocking mode"
+        );
         // icmp receiver sends packets that it receives to udp socket of `IcmpSocket`
         let (size, from_addr) = self.udp_socket.recv_from(buffer)?;
         // make sure that the receiver sent the packet
@@ -128,9 +129,10 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        if !self.is_blocking {
-            unimplemented!("currently IcmpSocket::recv_from in nonblocking mode is not being used")
-        }
+        assert!(
+            self.is_blocking,
+            "IcmpSocket::recv_from was called in non blocking mode"
+        );
         let mut second_buffer = [0u8; MAX_PACKET_SIZE];
         let local_addr = self.local_addr()?;
         loop {
