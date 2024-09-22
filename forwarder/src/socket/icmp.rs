@@ -108,6 +108,14 @@ impl SocketTrait for IcmpSocket {
     fn send(&self, buffer: &[u8]) -> io::Result<usize> {
         let dst_addr = self.connected_addr.unwrap();
         let packet = craft_icmp_packet(buffer, &self.local_addr()?, &dst_addr);
+        let dst_addr: SocketAddr = if dst_addr.is_ipv6() {
+            // in linux `send_to` on icmpv6 socket requires dst address port to be zero
+            let mut addr_without_port = dst_addr;
+            addr_without_port.set_port(0);
+            addr_without_port
+        } else {
+            dst_addr
+        };
         self.socket.send_to(&packet, &dst_addr.into())
     }
 
@@ -120,7 +128,9 @@ impl SocketTrait for IcmpSocket {
 
     fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
         let packet = craft_icmp_packet(buffer, &self.local_addr()?, to);
-        let to_addr = *to;
+        let mut to_addr = *to;
+        // in linux `send_to` on icmpv6 socket requires dst address port to be zero
+        to_addr.set_port(0);
         self.socket.send_to(&packet, &to_addr.into())
     }
 
