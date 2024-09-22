@@ -3,6 +3,12 @@ use crate::MAX_PACKET_SIZE;
 use etherparse::Ipv4HeaderSlice;
 use std::{mem::MaybeUninit, net::SocketAddr};
 
+// each nonblocking `IcmpSocket` does not actually listen for new packets because
+// icmp protocol is on layer 2 and doesn't have any concept of ports
+// so each packet will wake up all `IcmpSocket`s, to fix that and remove
+// overheads of parsing each packet multiple times we listen to packets
+// only on one socket on another thread and after parsing port and packet
+// we send it back to `IcmpSocket` via udp protocol
 pub fn run_icmp_receiver(addr: SocketAddr) -> anyhow::Result<()> {
     let is_ipv6 = addr.is_ipv6();
     let socket: socket2::Socket = IcmpSocket::inner_bind(addr)?;
@@ -11,6 +17,7 @@ pub fn run_icmp_receiver(addr: SocketAddr) -> anyhow::Result<()> {
 
     let mut buffer = [0u8; MAX_PACKET_SIZE];
     let mut addr_buffer = addr;
+    let open_ports = &OPEN_PORTS[is_ipv6 as usize];
 
     loop {
         let Ok(size) =
@@ -21,7 +28,7 @@ pub fn run_icmp_receiver(addr: SocketAddr) -> anyhow::Result<()> {
         let Some(icmp_packet) = parse_icmp_packet(&buffer[..size], is_ipv6) else {
             continue;
         };
-        let open_ports = OPEN_PORTS.read();
+        let open_ports = open_ports.read();
         let port = icmp_packet.dst_port;
         if open_ports.contains(&port) {
             addr_buffer.set_port(port);

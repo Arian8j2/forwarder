@@ -15,6 +15,17 @@ use std::{
     os::fd::AsRawFd,
 };
 
+/// tracks if the icmp receiver thread is started or not, the first index
+/// is for icmpv4 and the second is for icmpv6
+static IS_RECEIVER_STARTED: [Mutex<bool>; 2] = [Mutex::new(false), Mutex::new(false)];
+
+/// icmp receiver only handles ports that are in OPEN_PORTS so each
+/// `IcmpSocket` must register it's port via adding it to `OPEN_PORTS`
+/// and removing it when the `IcmpSocket` is dropped, the first index
+/// is for icmpv4 open ports and the second index is for icmpv6 open ports
+static OPEN_PORTS: [RwLock<BTreeSet<u16>>; 2] =
+    [RwLock::new(BTreeSet::new()), RwLock::new(BTreeSet::new())];
+
 /// `IcmpSocket` that is very similiar to `UdpSocket`
 #[derive(Debug)]
 pub struct IcmpSocket {
@@ -29,17 +40,6 @@ pub struct IcmpSocket {
     connected_addr: Option<SocketAddr>,
 }
 
-static IS_RECEIVER_STARTED: Mutex<bool> = Mutex::new(false);
-
-/// each nonblocking `IcmpSocket` does not actually listen for new packets because
-/// icmp protocol is on layer 2 and doesn't have any concept of ports
-/// so each packet will wake up all `IcmpSocket`s, to fix that and remove
-/// overheads of parsing each packet multiple times we listen to packets
-/// only on one socket on another thread and after parsing port and packet
-/// we put it in the corresponding controller `packets`, each nonblocking
-/// `IcmpSocket` can register it's port via adding it to `OPEN_PORTS`
-static OPEN_PORTS: RwLock<BTreeSet<u16>> = RwLock::new(BTreeSet::new());
-
 impl IcmpSocket {
     pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
         let udp_socket = std::net::UdpSocket::bind(addr)?;
@@ -47,7 +47,8 @@ impl IcmpSocket {
         let socket = IcmpSocket::inner_bind(*addr)?;
 
         // run the icmp receiver if it isn't running
-        let mut is_receiver_alive = IS_RECEIVER_STARTED.lock();
+        let receiver_index = addr.is_ipv6() as usize;
+        let mut is_receiver_alive = IS_RECEIVER_STARTED[receiver_index].lock();
         if !*is_receiver_alive {
             let addr_clone = addr.to_owned();
             std::thread::spawn(move || {
@@ -83,7 +84,8 @@ impl IcmpSocket {
 impl Drop for IcmpSocket {
     fn drop(&mut self) {
         // clear port
-        let mut open_ports = OPEN_PORTS.write();
+        let open_ports_index = self.udp_socket_addr.is_ipv6() as usize;
+        let mut open_ports = OPEN_PORTS[open_ports_index].write();
         open_ports.remove(&self.udp_socket_addr.port());
     }
 }
@@ -178,7 +180,8 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn register(&mut self, registry: &mio::Registry, token: mio::Token) -> io::Result<()> {
-        let mut open_ports = OPEN_PORTS.write();
+        let open_ports_index = self.udp_socket_addr.is_ipv6() as usize;
+        let mut open_ports = OPEN_PORTS[open_ports_index].write();
         open_ports.insert(self.udp_socket_addr.port());
 
         registry.register(
