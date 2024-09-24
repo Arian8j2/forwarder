@@ -29,14 +29,15 @@ static OPEN_PORTS: [RwLock<BTreeSet<u16>>; 2] =
 /// `IcmpSocket` that is very similiar to `UdpSocket`
 #[derive(Debug)]
 pub struct IcmpSocket {
+    /// actual underlying icmp socket
     socket: socket2::Socket,
-    /// is underline icmp socket blocking
     is_blocking: bool,
-    /// udp socket that is kept alive for avoiding duplicate port
+    /// udp socket that is kept alive for avoiding duplicate port and
+    /// receives packets from icmp receiver if the socket is non blocking
     udp_socket: std::net::UdpSocket,
-    /// address of udp socket
+    /// address of udp socket same as `udp_socket.local_addr()`
     udp_socket_addr: SocketAddr,
-    /// saves the socket that is connected to
+    /// contains the address that the socket is connected to
     connected_addr: Option<SocketAddr>,
 }
 
@@ -99,7 +100,7 @@ impl SocketTrait for IcmpSocket {
         // icmp receiver sends packets that it receives to udp socket of `IcmpSocket`
         let (size, from_addr) = self.udp_socket.recv_from(buffer)?;
         // make sure that the receiver sent the packet
-        // receiver is local so the packet ip is from loopback
+        // receiver is local so the packet ip must be from loopback
         if from_addr.ip().is_loopback() {
             Ok(size)
         } else {
@@ -111,7 +112,7 @@ impl SocketTrait for IcmpSocket {
         let dst_addr = self.connected_addr.unwrap();
         let packet = craft_icmp_packet(buffer, &self.local_addr()?, &dst_addr);
         let dst_addr: SocketAddr = if dst_addr.is_ipv6() {
-            // in linux `send_to` on icmpv6 socket requires dst address port to be zero
+            // in linux `send_to` on icmpv6 socket requires destination port to be zero
             let mut addr_without_port = dst_addr;
             addr_without_port.set_port(0);
             addr_without_port
@@ -131,7 +132,7 @@ impl SocketTrait for IcmpSocket {
     fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
         let packet = craft_icmp_packet(buffer, &self.local_addr()?, to);
         let mut to_addr = *to;
-        // in linux `send_to` on icmpv6 socket requires dst address port to be zero
+        // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
         self.socket.send_to(&packet, &to_addr.into())
     }
@@ -199,7 +200,6 @@ fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &Socket
         seq: source_addr.port(),
     };
 
-    // TODO: rewrite this part to use fewer allocations
     let icmp_header = if source_addr.is_ipv4() {
         let icmp_type = Icmpv4Type::EchoRequest(echo_header);
         Icmpv4Header::with_checksum(icmp_type, payload)
