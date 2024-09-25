@@ -62,26 +62,61 @@ pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool) -> Option<IcmpPacket<'_>>
     let icmp = IcmpSlice::from_slice(is_ipv6, &packet[payload_start_index..])?;
     // we only work with icmp echo requests so if any other type of icmp
     // packet we receive we just ignore it
-    let correct_icmp_type = if is_ipv6 {
+    let echo_request = if is_ipv6 {
         etherparse::icmpv6::TYPE_ECHO_REQUEST
     } else {
         etherparse::icmpv4::TYPE_ECHO_REQUEST
     };
-    if icmp.type_u8() != correct_icmp_type || icmp.code_u8() != 0 {
+    let echo_reply = if is_ipv6 {
+        etherparse::icmpv6::TYPE_ECHO_REPLY
+    } else {
+        etherparse::icmpv4::TYPE_ECHO_REPLY
+    };
+
+    if !(icmp.type_u8() == echo_request || icmp.type_u8() == echo_reply) {
+        return None;
+    }
+    if icmp.code_u8() != 0 {
         return None;
     }
 
     let bytes5to8 = icmp.bytes5to8();
-    // icmp is on layer 3 so it has no idea about ports
-    // we use identification part of icmp packet as destination port
-    // to identify packets that are really meant for us
-    let dst_port = u16::from_be_bytes([bytes5to8[0], bytes5to8[1]]);
-
-    // we also use sequence part of icmp packet as source port
-    let src_port = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
+    let id = u16::from_be_bytes([bytes5to8[0], bytes5to8[1]]);
+    let seq = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
 
     let payload_len = icmp.payload().len();
-    let payload = &packet[packet.len() - payload_len..];
+    let payload = if icmp.type_u8() == echo_request {
+        &packet[packet.len() - payload_len..]
+    } else {
+        // filter the reply packets that doesn't have the magic bytes
+        let payload = &packet[packet.len() - payload_len..];
+        let magic_len = super::ECHO_REPLY_MAGIC.len();
+        if payload.len() < magic_len {
+            return None;
+        }
+        if payload[payload.len() - magic_len..] != super::ECHO_REPLY_MAGIC {
+            return None;
+        }
+        // striping magic bytes off the payload
+        &payload[..payload.len() - magic_len]
+    };
+
+    // icmp is on layer 3 so it has no idea about ports so we use
+    // identification and sequence part of icmp packet as src and dst port
+    // but the problem is that if for example port 1010 sends a packet to 8000
+    // the id and seq is like this:
+    //      | ID: 1010 | SEQ: 8000 |
+    // now if the server wants to send echo reply from 8000 to 1010 the packet
+    // will be like this:
+    //      | ID: 8000 | SEQ: 1010 |
+    // the important part is the ID, if the ID of echo reply is different than
+    // the echo request then NAT has no clue how to forward this packet, so we
+    // swap the id and seq position based on the packet is reply or request
+    let (src_port, dst_port) = if icmp.type_u8() == echo_reply {
+        (seq, id)
+    } else {
+        (id, seq)
+    };
 
     Some(IcmpPacket {
         payload,

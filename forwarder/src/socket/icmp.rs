@@ -15,6 +15,11 @@ use std::{
     os::fd::AsRawFd,
 };
 
+/// magic bytes that are injected to end of icmp echo reply packets that
+/// we craft and it get discarded later when parsing, it's purpose is to
+/// detect automatic echo reply packets of kernel and ignore them
+const ECHO_REPLY_MAGIC: [u8; 3] = [0x24, 0x74, 0x33];
+
 /// tracks if the icmp receiver thread is started or not, the first index
 /// is for icmpv4 and the second is for icmpv6
 static IS_RECEIVER_STARTED: [Mutex<bool>; 2] = [Mutex::new(false), Mutex::new(false)];
@@ -109,8 +114,13 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn send(&self, buffer: &[u8]) -> io::Result<usize> {
+        assert!(
+            !self.is_blocking,
+            "IcmpSocket::send_to called on blocking socket"
+        );
+
         let dst_addr = self.connected_addr.unwrap();
-        let packet = craft_icmp_packet(buffer, &self.local_addr()?, &dst_addr);
+        let packet = craft_icmp_packet(buffer, &self.local_addr()?, &dst_addr, true);
         let dst_addr: SocketAddr = if dst_addr.is_ipv6() {
             // in linux `send_to` on icmpv6 socket requires destination port to be zero
             let mut addr_without_port = dst_addr;
@@ -130,7 +140,11 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
-        let packet = craft_icmp_packet(buffer, &self.local_addr()?, to);
+        assert!(
+            self.is_blocking,
+            "IcmpSocket::send_to called on nonblocking socket"
+        );
+        let packet = craft_icmp_packet(buffer, &self.local_addr()?, to, false);
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
@@ -194,22 +208,59 @@ impl SocketTrait for IcmpSocket {
     }
 }
 
-fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &SocketAddr) -> Vec<u8> {
-    let echo_header = IcmpEchoHeader {
-        id: dst_addr.port(),
-        seq: source_addr.port(),
+fn craft_icmp_packet(
+    payload: &[u8],
+    source_addr: &SocketAddr,
+    dst_addr: &SocketAddr,
+    request: bool,
+) -> Vec<u8> {
+    // when we are sending echo reply we inject few magic bytes to the
+    // end of payload so when receiving reply packets we can determine
+    // if the echo reply packet is automatically sent from kernel
+    // (in case /proc/sys/net/ipv4/icmp_echo_ignore_all is not turned off)
+    // or we actually sent it
+    let payload = if !request {
+        let payload_with_magic_len = payload.len() + ECHO_REPLY_MAGIC.len();
+        let mut buffer = vec![0u8; payload_with_magic_len];
+        buffer[..payload.len()].copy_from_slice(payload);
+        buffer[payload.len()..].copy_from_slice(&ECHO_REPLY_MAGIC);
+        buffer
+    } else {
+        payload.to_vec()
+    };
+
+    // read comments on `receiver::parse_icmp_packet` on why the
+    // source and destination place changes based on echo reply or request
+    let echo_header = if request {
+        IcmpEchoHeader {
+            id: source_addr.port(),
+            seq: dst_addr.port(),
+        }
+    } else {
+        IcmpEchoHeader {
+            id: dst_addr.port(),
+            seq: source_addr.port(),
+        }
     };
 
     let icmp_header = if source_addr.is_ipv4() {
-        let icmp_type = Icmpv4Type::EchoRequest(echo_header);
-        Icmpv4Header::with_checksum(icmp_type, payload)
+        let icmp_type = if request {
+            Icmpv4Type::EchoRequest(echo_header)
+        } else {
+            Icmpv4Type::EchoReply(echo_header)
+        };
+        Icmpv4Header::with_checksum(icmp_type, &payload)
             .to_bytes()
             .to_vec()
     } else {
-        let icmp_type = Icmpv6Type::EchoRequest(echo_header);
+        let icmp_type = if request {
+            Icmpv6Type::EchoRequest(echo_header)
+        } else {
+            Icmpv6Type::EchoReply(echo_header)
+        };
         let source_ip = as_socket_addr_v6(*source_addr).ip().octets();
         let destination_ip = as_socket_addr_v6(*dst_addr).ip().octets();
-        Icmpv6Header::with_checksum(icmp_type, source_ip, destination_ip, payload)
+        Icmpv6Header::with_checksum(icmp_type, source_ip, destination_ip, &payload)
             .unwrap()
             .to_bytes()
             .to_vec()
@@ -217,7 +268,7 @@ fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &Socket
 
     let mut header_and_payload = Vec::with_capacity(icmp_header.len() + payload.len());
     header_and_payload.extend_from_slice(&icmp_header);
-    header_and_payload.extend_from_slice(payload);
+    header_and_payload.extend_from_slice(&payload);
     header_and_payload
 }
 
