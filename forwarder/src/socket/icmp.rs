@@ -72,7 +72,6 @@ impl IcmpSocket {
 
     fn inner_bind(addr: SocketAddr) -> io::Result<socket2::Socket> {
         let socket = if addr.is_ipv4() {
-            // TODO: why Type::RAW, why not Type::DGRAM
             socket2::Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))
         } else {
             socket2::Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::ICMPV6))
