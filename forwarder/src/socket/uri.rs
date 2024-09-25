@@ -2,6 +2,22 @@ use super::SocketProtocol;
 use anyhow::ensure;
 use std::{fmt::Display, net::SocketAddr, str::FromStr};
 
+/// # Examples
+/// ```
+/// use forwarder::socket::{SocketUri, SocketProtocol};
+/// use std::{str::FromStr, net::{IpAddr, Ipv4Addr, SocketAddr}};
+///
+/// let uri = SocketUri::from_str("127.0.0.1:8000/udp")?;
+/// assert_eq!(
+///     uri.addr,
+///     SocketAddr::new(
+///         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+///         8000
+///     )
+/// );
+/// assert_eq!(uri.protocol, SocketProtocol::Udp);
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct SocketUri {
     pub addr: SocketAddr,
@@ -55,18 +71,6 @@ impl TryFrom<&str> for SocketUri {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn test_udp_uri() {
-        let input = "127.0.0.1:8000/udp";
-        let uri = SocketUri::from_str(input).unwrap();
-        assert_eq!(
-            uri.addr,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000)
-        );
-        assert_eq!(uri.protocol, SocketProtocol::Udp);
-    }
 
     #[test]
     fn test_invalid_uri_should_fail() {
