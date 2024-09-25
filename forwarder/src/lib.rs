@@ -17,7 +17,7 @@ use {
 };
 
 const EPOLL_EVENTS_CAPACITY: usize = 1024;
-pub const MAX_PACKET_SIZE: usize = 65535;
+const MAX_PACKET_SIZE: usize = 65535;
 /// interval that cleanup happens, also lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
