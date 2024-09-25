@@ -1,22 +1,10 @@
 use anyhow::bail;
-
-use super::{icmp::IcmpSocket, udp::UdpSocket, Socket};
-use std::{fmt::Display, io::Result, net::SocketAddr, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SocketProtocol {
     Udp,
     Icmp,
-}
-
-impl SocketProtocol {
-    pub fn bind(self, addr: &SocketAddr) -> Result<Socket> {
-        let socket = match self {
-            SocketProtocol::Udp => Socket::Udp(UdpSocket::bind(addr)?),
-            SocketProtocol::Icmp => Socket::Icmp(IcmpSocket::bind(addr)?),
-        };
-        Ok(socket)
-    }
 }
 
 impl FromStr for SocketProtocol {

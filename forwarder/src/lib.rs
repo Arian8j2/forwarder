@@ -29,9 +29,7 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 /// this function blocks the whole thread and doesn't stop until something panics
 pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Option<String>) {
     let listen_addr = &listen_uri.addr;
-    let socket = listen_uri
-        .protocol
-        .bind(listen_addr)
+    let socket = Socket::bind(listen_uri.protocol, listen_addr)
         .unwrap_or_else(|_| panic!("couldn't listen on '{listen_addr}'"));
     let socket = Arc::new(socket);
     info!("listen on '{listen_addr}'");

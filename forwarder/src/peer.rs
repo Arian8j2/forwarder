@@ -26,7 +26,7 @@ impl Peer {
                 SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
             }
         };
-        let mut socket = remote_uri.protocol.bind(&addr)?;
+        let mut socket = Socket::bind(remote_uri.protocol, &addr)?;
         socket.connect(&remote_uri.addr)?;
         socket.set_nonblocking(true)?;
         let token = socket.unique_token();

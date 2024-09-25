@@ -21,6 +21,17 @@ pub enum Socket {
     Icmp(icmp::IcmpSocket),
 }
 
+impl Socket {
+    /// creates a socket based on `protocol` and binds it to `addr` address
+    pub fn bind(protocol: SocketProtocol, addr: &SocketAddr) -> io::Result<Self> {
+        let socket = match protocol {
+            SocketProtocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
+            SocketProtocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr)?),
+        };
+        Ok(socket)
+    }
+}
+
 mod protocol;
 mod uri;
 pub use protocol::SocketProtocol;
