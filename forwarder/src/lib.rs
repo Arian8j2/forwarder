@@ -6,11 +6,7 @@ use anyhow::Context;
 use log::info;
 use mio::{Events, Poll, Registry};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
-use std::{
-    net::SocketAddr,
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use {
     peer::{Peer, PeerManager},
     socket::{Socket, SocketTrait, SocketUri},
@@ -66,7 +62,7 @@ pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Opti
         let peers = peer_manager.upgradable_read();
         match peers.find_peer_with_client_addr(&from_addr) {
             Some(peer) => {
-                peer.used.store(true, Ordering::Relaxed);
+                peer.set_used();
                 // client ---> server socket ---peer socket----> remote
                 peer.socket.send(&buffer[..size]).ok();
             }
@@ -134,7 +130,7 @@ fn peers_thread(
         for event in &events {
             let token = event.token();
             let peer = peers.find_peer_with_token(&token).unwrap();
-            peer.used.store(true, Ordering::Relaxed);
+            peer.set_used();
             // each epoll event may result in multiple readiness events
             while let Ok(size) = peer.socket.recv(&mut buffer) {
                 if let Some(ref passphrase) = passphrase {
@@ -160,7 +156,7 @@ fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
     let mut peers = peer_manager.write();
     let mut used_client_count = 0;
     for peer in peers.get_all() {
-        let used = peer.used.swap(false, Ordering::Relaxed);
+        let used = peer.reset_used();
         if !used {
             let client_addr = peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");

@@ -4,6 +4,7 @@ use std::{
     borrow::Borrow,
     collections::BTreeMap,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    sync::atomic::Ordering,
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -12,7 +13,7 @@ pub struct Peer {
     pub socket: Socket,
     client_addr: SocketAddr,
     token: Token,
-    pub used: AtomicBool,
+    used: AtomicBool,
 }
 
 impl Peer {
@@ -37,6 +38,19 @@ impl Peer {
             used: AtomicBool::new(true),
         };
         Ok((peer, token))
+    }
+
+    /// mark `Peer` as being used to prevent cleanup thread from cleaning it
+    pub fn set_used(&self) {
+        self.used
+            .compare_exchange_weak(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .ok();
+    }
+
+    /// mark `Peer` as not being in use and returns `true` if it was used
+    /// before reseting otherwise returns `false`
+    pub fn reset_used(&self) -> bool {
+        self.used.swap(false, Ordering::Relaxed)
     }
 
     pub fn get_client_addr(&self) -> &SocketAddr {
