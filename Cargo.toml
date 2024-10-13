@@ -4,3 +4,5 @@ members = ["forwarder-cli", "forwarder", "forwarder-bench"]
 
 [profile.release]
 panic = "abort"
+lto = true
+codegen-units = 1
