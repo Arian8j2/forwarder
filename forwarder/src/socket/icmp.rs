@@ -1,44 +1,27 @@
 mod ether_helper;
-mod receiver;
 
-use super::SocketTrait;
+use super::{NonBlockingSocketTrait, SocketTrait};
 use crate::MAX_PACKET_SIZE;
-use etherparse::{IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type};
-use mio::{unix::SourceFd, Interest};
-use parking_lot::{Mutex, RwLock};
+use ether_helper::IcmpSlice;
+use etherparse::{
+    IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, Ipv4HeaderSlice,
+};
 use socket2::{Domain, Protocol, Type};
 use std::{
-    collections::BTreeSet,
     io,
     mem::MaybeUninit,
     net::{SocketAddr, SocketAddrV6},
-    os::fd::AsRawFd,
 };
-
-/// tracks if the icmp receiver thread is started or not, the first index
-/// is for icmpv4 and the second is for icmpv6
-static IS_RECEIVER_STARTED: [Mutex<bool>; 2] = [Mutex::new(false), Mutex::new(false)];
-
-/// icmp receiver only handles ports that are in OPEN_PORTS so each
-/// `IcmpSocket` must register it's port via adding it to `OPEN_PORTS`
-/// and removing it when the `IcmpSocket` is dropped, the first index
-/// is for icmpv4 open ports and the second index is for icmpv6 open ports
-static OPEN_PORTS: [RwLock<BTreeSet<u16>>; 2] =
-    [RwLock::new(BTreeSet::new()), RwLock::new(BTreeSet::new())];
 
 /// `IcmpSocket` that is very similiar to `UdpSocket`
 #[derive(Debug)]
 pub struct IcmpSocket {
     /// actual underlying icmp socket
     socket: socket2::Socket,
-    is_blocking: bool,
-    /// udp socket that is kept alive for avoiding duplicate port and
-    /// receives packets from icmp receiver if the socket is non blocking
-    udp_socket: std::net::UdpSocket,
+    /// udp socket that is kept alive for avoiding duplicate port
+    _udp_socket: std::net::UdpSocket,
     /// address of udp socket same as `udp_socket.local_addr()`
     udp_socket_addr: SocketAddr,
-    /// contains the address that the socket is connected to
-    connected_addr: Option<SocketAddr>,
 }
 
 impl IcmpSocket {
@@ -47,30 +30,14 @@ impl IcmpSocket {
         let udp_socket_addr = udp_socket.local_addr()?;
         let socket = IcmpSocket::inner_bind(*addr)?;
 
-        // run the icmp receiver if it isn't running
-        let receiver_index = addr.is_ipv6() as usize;
-        let mut is_receiver_alive = IS_RECEIVER_STARTED[receiver_index].lock();
-        if !*is_receiver_alive {
-            let addr_clone = addr.to_owned();
-            std::thread::spawn(move || {
-                if let Err(error) = receiver::run_icmp_receiver(addr_clone) {
-                    log::error!("icmp receiver exited with error: {error:?}")
-                }
-                panic!("icmp receiver")
-            });
-            *is_receiver_alive = true;
-        }
-
         Ok(IcmpSocket {
-            udp_socket,
+            _udp_socket: udp_socket,
             udp_socket_addr,
             socket,
-            connected_addr: None,
-            is_blocking: true,
         })
     }
 
-    fn inner_bind(addr: SocketAddr) -> io::Result<socket2::Socket> {
+    pub fn inner_bind(addr: SocketAddr) -> io::Result<socket2::Socket> {
         let socket = if addr.is_ipv4() {
             socket2::Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))
         } else {
@@ -81,78 +48,23 @@ impl IcmpSocket {
     }
 }
 
-impl Drop for IcmpSocket {
-    fn drop(&mut self) {
-        // clear port
-        let open_ports_index = self.udp_socket_addr.is_ipv6() as usize;
-        let mut open_ports = OPEN_PORTS[open_ports_index].write();
-        open_ports.remove(&self.udp_socket_addr.port());
-    }
-}
-
 impl SocketTrait for IcmpSocket {
-    fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {
-        assert!(
-            !self.is_blocking,
-            "IcmpSocket::recv was called in blocking mode"
-        );
-        // icmp receiver sends packets that it receives to udp socket of `IcmpSocket`
-        let (size, from_addr) = self.udp_socket.recv_from(buffer)?;
-        // make sure that the receiver sent the packet
-        // receiver is local so the packet ip must be from loopback
-        if from_addr.ip().is_loopback() {
-            Ok(size)
-        } else {
-            Err(io::ErrorKind::ConnectionRefused.into())
-        }
-    }
-
-    fn send(&self, buffer: &[u8]) -> io::Result<usize> {
-        let dst_addr = self.connected_addr.unwrap();
-        let packet = craft_icmp_packet(buffer, &self.local_addr()?, &dst_addr);
-        let dst_addr: SocketAddr = if dst_addr.is_ipv6() {
-            // in linux `send_to` on icmpv6 socket requires destination port to be zero
-            let mut addr_without_port = dst_addr;
-            addr_without_port.set_port(0);
-            addr_without_port
-        } else {
-            dst_addr
-        };
-        self.socket.send_to(&packet, &dst_addr.into())
-    }
-
-    fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
-        let addr = *addr;
-        self.socket.connect(&addr.into())?;
-        self.connected_addr = Some(addr);
-        Ok(())
-    }
-
     fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
-        let packet = craft_icmp_packet(buffer, &self.local_addr()?, to);
+        let packet = craft_icmp_packet(buffer, &self.udp_socket_addr, to);
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
         self.socket.send_to(&packet, &to_addr.into())
     }
 
-    fn unique_token(&self) -> mio::Token {
-        mio::Token(self.udp_socket.as_raw_fd() as usize)
-    }
-
     fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        assert!(
-            self.is_blocking,
-            "IcmpSocket::recv_from was called in non blocking mode"
-        );
         let mut second_buffer = [0u8; MAX_PACKET_SIZE];
         let local_addr = self.local_addr()?;
         loop {
             let (size, from_addr) = self.socket.recv_from(unsafe {
                 &mut *(&mut second_buffer as *mut [u8] as *mut [MaybeUninit<u8>])
             })?;
-            let Some(packet) =
-                receiver::parse_icmp_packet(&second_buffer[..size], local_addr.is_ipv6())
+            let Some(packet) = parse_icmp_packet(&mut second_buffer[..size], local_addr.is_ipv6())
             else {
                 continue;
             };
@@ -171,25 +83,50 @@ impl SocketTrait for IcmpSocket {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.udp_socket_addr)
     }
+}
 
-    fn set_nonblocking(&mut self, nonblocking: bool) -> io::Result<()> {
-        self.socket.set_nonblocking(nonblocking)?;
-        self.udp_socket.set_nonblocking(nonblocking)?;
-        self.is_blocking = !nonblocking;
+#[derive(Debug)]
+pub struct NonBlockingIcmpSocket {
+    icmp_socket: IcmpSocket,
+    // we need to have a copy of connected addr because we
+    // need it to craft packet, in ipv6 we need addr + port and
+    // int ipv4 we need port
+    connected_addr: Option<SocketAddr>,
+}
+
+impl NonBlockingIcmpSocket {
+    pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
+        let icmp_socket = IcmpSocket::bind(addr)?;
+        icmp_socket.socket.set_nonblocking(true)?;
+        Ok(Self {
+            icmp_socket,
+            connected_addr: None,
+        })
+    }
+}
+
+impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
+    fn recv(&self, _buffer: &mut [u8]) -> io::Result<usize> {
+        unreachable!("IcmpPoll doesn't call recv on socket, it has it's own master socket");
+    }
+
+    fn send(&self, buffer: &[u8]) -> io::Result<usize> {
+        let dst_addr = self.connected_addr.unwrap();
+        let packet = craft_icmp_packet(buffer, &self.icmp_socket.udp_socket_addr, &dst_addr);
+        self.icmp_socket.socket.send(&packet)
+    }
+
+    fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
+        self.connected_addr = Some(*addr);
+        let mut addr = *addr;
+        // in linux icmpv6 socket requires destination port to be zero
+        addr.set_port(0);
+        self.icmp_socket.socket.connect(&addr.into())?;
         Ok(())
     }
 
-    fn register(&mut self, registry: &mio::Registry, token: mio::Token) -> io::Result<()> {
-        let open_ports_index = self.udp_socket_addr.is_ipv6() as usize;
-        let mut open_ports = OPEN_PORTS[open_ports_index].write();
-        open_ports.insert(self.udp_socket_addr.port());
-
-        registry.register(
-            &mut SourceFd(&self.udp_socket.as_raw_fd()),
-            token,
-            Interest::READABLE,
-        )?;
-        Ok(())
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.icmp_socket.local_addr()
     }
 }
 
@@ -218,6 +155,60 @@ fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &Socket
     header_and_payload.extend_from_slice(&icmp_header);
     header_and_payload.extend_from_slice(payload);
     header_and_payload
+}
+
+pub struct IcmpPacket<'a> {
+    pub payload: &'a mut [u8],
+    pub src_port: u16,
+    pub dst_port: u16,
+}
+
+pub fn parse_icmp_packet(packet: &mut [u8], is_ipv6: bool) -> Option<IcmpPacket<'_>> {
+    // according to 'icmp6' man page on freebsd (seems like linux does this too):
+    // 'Incoming packets on the socket are received with the IPv6 header and any extension headers removed'
+    //
+    // but on 'icmp' man page that is for icmpv4, it says:
+    // 'Incoming packets are received with the IP header and options intact.'
+    //
+    // so we need to parse header in icmpv4 but not in icmpv6
+    let payload_start_index = if is_ipv6 {
+        0
+    } else {
+        let ip_header = Ipv4HeaderSlice::from_slice(packet).ok()?;
+        let payload_len: usize = ip_header.payload_len().into();
+        packet.len() - payload_len
+    };
+
+    let icmp = IcmpSlice::from_slice(is_ipv6, &packet[payload_start_index..])?;
+    // we only work with icmp echo requests so if any other type of icmp
+    // packet we receive we just ignore it
+    let correct_icmp_type = if is_ipv6 {
+        etherparse::icmpv6::TYPE_ECHO_REQUEST
+    } else {
+        etherparse::icmpv4::TYPE_ECHO_REQUEST
+    };
+    if icmp.type_u8() != correct_icmp_type || icmp.code_u8() != 0 {
+        return None;
+    }
+
+    let bytes5to8 = icmp.bytes5to8();
+    // icmp is on layer 3 so it has no idea about ports
+    // we use identification part of icmp packet as destination port
+    // to identify packets that are really meant for us
+    let dst_port = u16::from_be_bytes([bytes5to8[0], bytes5to8[1]]);
+
+    // we also use sequence part of icmp packet as source port
+    let src_port = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
+
+    let payload_len = icmp.payload().len();
+    let total_len = packet.len();
+    let payload = &mut packet[total_len - payload_len..];
+
+    Some(IcmpPacket {
+        payload,
+        src_port,
+        dst_port,
+    })
 }
 
 fn as_socket_addr_v6(socket_addr: SocketAddr) -> SocketAddrV6 {

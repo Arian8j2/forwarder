@@ -130,18 +130,10 @@ fn spawn_double_forwarder_and_test_connection(
     remote_uri: SocketUri,
 ) {
     std::thread::spawn(move || {
-        run_server(
-            forwarder_uri,
-            second_forwarder_uri,
-            Some(String::from("some_password")),
-        );
+        run_server(forwarder_uri, second_forwarder_uri, None);
     });
     std::thread::spawn(move || {
-        run_server(
-            second_forwarder_uri,
-            remote_uri,
-            Some(String::from("some_password")),
-        );
+        run_server(second_forwarder_uri, remote_uri, None);
     });
     test_connection(&forwarder_uri.addr, &remote_uri.addr);
 }

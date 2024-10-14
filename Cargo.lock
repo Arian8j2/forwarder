@@ -147,18 +147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum_dispatch"
-version = "0.3.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "etherparse"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,7 +160,6 @@ name = "forwarder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "enum_dispatch",
  "etherparse",
  "log",
  "mio",
@@ -280,12 +267,6 @@ checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "once_cell"
-version = "1.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ea5043e58958ee56f3e15a90aee535795cd7dfd319846288d93c5b57d85cbe"
 
 [[package]]
 name = "parking_lot"

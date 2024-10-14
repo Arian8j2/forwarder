@@ -1,19 +1,19 @@
 mod encryption;
 mod peer;
+mod poll;
 pub mod socket;
 
-use anyhow::Context;
-use log::info;
-use mio::{Events, Poll, Registry};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use poll::Poll;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use {
     peer::{Peer, PeerManager},
-    socket::{Socket, SocketTrait, SocketUri},
+    socket::{Socket, SocketUri},
 };
 
-const EPOLL_EVENTS_CAPACITY: usize = 1024;
+// all buffers that are used as recv buffer will have this size
 const MAX_PACKET_SIZE: usize = 65535;
+
 /// interval that cleanup happens, also lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
@@ -28,21 +28,23 @@ pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Opti
     let socket = Socket::bind(listen_uri.protocol, listen_addr)
         .unwrap_or_else(|_| panic!("couldn't listen on '{listen_addr}'"));
     let socket = Arc::new(socket);
-    info!("listen on '{listen_addr}'");
+    log::info!("listen on '{listen_addr}'");
 
-    let poll = Poll::new().expect("cannot create epoll");
+    // TODO: better error handling in `run_server`
+    let poll = poll::new(remote_uri.protocol, remote_uri.addr.is_ipv6())
+        .unwrap_or_else(|err| panic!("couldn't create poll: {err:?}"));
     let registry = poll
-        .registry()
-        .try_clone()
-        .expect("couldn't copy mio registry");
+        .get_registry()
+        .unwrap_or_else(|err| panic!("couldn't create registry: {err:?}"));
 
-    let peer_manager: Arc<RwLock<PeerManager>> = Arc::new(RwLock::new(PeerManager::new()));
+    let peer_manager = PeerManager::new(registry).unwrap();
+    let peer_manager: Arc<RwLock<PeerManager>> = Arc::new(RwLock::new(peer_manager));
     {
         let peer_manager = peer_manager.clone();
         let server_socket = socket.clone();
         let passphrase = passphrase.clone();
-        std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket, passphrase))
-    };
+        std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket, passphrase));
+    }
     {
         let peer_manager = peer_manager.clone();
         std::thread::spawn(|| cleanup_thread(peer_manager));
@@ -69,7 +71,7 @@ pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Opti
             None => {
                 log::info!("new client '{from_addr}'");
                 let peers = RwLockUpgradableReadGuard::upgrade(peers);
-                let peer = match add_new_peer(&remote_uri, from_addr, peers, &registry) {
+                let peer = match add_new_peer(&remote_uri, from_addr, peers) {
                     Ok(peer) => peer,
                     Err(error) => {
                         log::error!("couldn't add new peer: {error:?}");
@@ -89,20 +91,15 @@ fn add_new_peer(
     remote_uri: &SocketUri,
     from_addr: SocketAddr,
     mut peers: RwLockWriteGuard<PeerManager>,
-    registry: &Registry,
 ) -> anyhow::Result<Arc<Peer>> {
-    let (mut new_peer, token) = Peer::create(remote_uri, from_addr)?;
-    new_peer
-        .socket
-        .register(registry, token)
-        .with_context(|| "couldn't add new peer to mio registry")?;
-    let peer = peers.add_peer(new_peer);
+    let new_peer = Peer::new(remote_uri, from_addr)?;
+    let peer = peers.add_peer(new_peer)?;
     Ok(peer)
 }
 
 /// run peers_thread and panic if it exited
 fn try_peers_thread(
-    poll: Poll,
+    poll: Box<dyn Poll>,
     peers: Arc<RwLock<PeerManager>>,
     server_socket: Arc<Socket>,
     passphrase: Option<String>,
@@ -115,32 +112,23 @@ fn try_peers_thread(
 
 /// thread that handles all incoming packets to each `Peer`
 fn peers_thread(
-    mut poll: Poll,
+    mut poll: Box<dyn Poll>,
     peers: Arc<RwLock<PeerManager>>,
     server_socket: Arc<Socket>,
     passphrase: Option<String>,
 ) -> anyhow::Result<()> {
-    let mut events = Events::with_capacity(EPOLL_EVENTS_CAPACITY);
-    let mut buffer = vec![0u8; MAX_PACKET_SIZE];
-
-    loop {
-        poll.poll(&mut events, None)?;
-
-        let peers = peers.read();
-        for event in &events {
-            let token = event.token();
-            let peer = peers.find_peer_with_token(&token).unwrap();
-            peer.set_used();
-            // each epoll event may result in multiple readiness events
-            while let Ok(size) = peer.socket.recv(&mut buffer) {
-                if let Some(ref passphrase) = passphrase {
-                    encryption::xor_encrypt(&mut buffer[..size], passphrase)
-                }
-                // client <--server socket--- peer <----- remote
-                server_socket.send_to(&buffer[..size], peer.get_client_addr())?;
-            }
+    let on_peer_recv = Box::new(move |peer: &Peer, buffer: &mut [u8]| {
+        peer.set_used();
+        if let Some(ref passphrase) = passphrase {
+            encryption::xor_encrypt(buffer, passphrase)
         }
-    }
+        // client <--server socket--- peer <----- remote
+        server_socket
+            .send_to(buffer, peer.get_client_addr())
+            .unwrap();
+    });
+    poll.poll(peers, on_peer_recv)?;
+    Ok(())
 }
 
 /// run cleanup thread
@@ -160,7 +148,9 @@ fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
         if !used {
             let client_addr = peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");
-            peers.remove_peer(client_addr, peer.get_token());
+            if let Err(error) = peers.remove_peer(&peer) {
+                log::warn!("couldn't remove peer of '{client_addr}': {error:?}");
+            }
         } else {
             used_client_count += 1;
         }

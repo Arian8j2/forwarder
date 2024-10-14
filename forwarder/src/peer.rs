@@ -1,5 +1,6 @@
-use crate::socket::{Socket, SocketTrait, SocketUri};
-use mio::Token;
+use crate::poll::Registry;
+use crate::socket::{NonBlockingSocket, SocketUri};
+use std::fmt::Debug;
 use std::{
     borrow::Borrow,
     collections::BTreeMap,
@@ -10,34 +11,27 @@ use std::{
 
 #[derive(Debug)]
 pub struct Peer {
-    pub socket: Socket,
+    pub socket: NonBlockingSocket,
     client_addr: SocketAddr,
-    token: Token,
     used: AtomicBool,
 }
 
 impl Peer {
-    pub fn create(
-        remote_uri: &SocketUri,
-        client_addr: SocketAddr,
-    ) -> anyhow::Result<(Self, Token)> {
+    pub fn new(remote_uri: &SocketUri, client_addr: SocketAddr) -> anyhow::Result<Self> {
         let addr: SocketAddr = match remote_uri.addr {
             SocketAddr::V4(_) => SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into(),
             SocketAddr::V6(_) => {
                 SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
             }
         };
-        let mut socket = Socket::bind(remote_uri.protocol, &addr)?;
+        let mut socket = NonBlockingSocket::bind(remote_uri.protocol, &addr)?;
         socket.connect(&remote_uri.addr)?;
-        socket.set_nonblocking(true)?;
-        let token = socket.unique_token();
         let peer = Self {
             socket,
-            token,
             client_addr,
             used: AtomicBool::new(true),
         };
-        Ok((peer, token))
+        Ok(peer)
     }
 
     /// mark `Peer` as being used to prevent cleanup thread from cleaning it
@@ -56,10 +50,6 @@ impl Peer {
     pub fn get_client_addr(&self) -> &SocketAddr {
         &self.client_addr
     }
-
-    pub fn get_token(&self) -> &Token {
-        &self.token
-    }
 }
 
 // we keep multiple `BTreeMap`s because on server we
@@ -67,27 +57,29 @@ impl Peer {
 // side we need to find peer based on `token` so the
 // fastest way (i think) is to have multiple maps that
 // points to same `Peer`
-#[derive(Debug)]
 pub struct PeerManager {
     client_addr_to_peers: BTreeMap<SocketAddr, Arc<Peer>>,
-    token_to_peers: BTreeMap<Token, Arc<Peer>>,
+    port_to_peers: BTreeMap<u16, Arc<Peer>>,
+    registry: Box<dyn Registry>,
 }
 
 impl PeerManager {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(registry: Box<dyn Registry>) -> anyhow::Result<Self> {
+        Ok(Self {
             client_addr_to_peers: BTreeMap::new(),
-            token_to_peers: BTreeMap::new(),
-        }
+            port_to_peers: BTreeMap::new(),
+            registry,
+        })
     }
 
-    pub fn add_peer(&mut self, new_peer: Peer) -> Arc<Peer> {
-        let token = new_peer.token;
+    pub fn add_peer(&mut self, new_peer: Peer) -> anyhow::Result<Arc<Peer>> {
         let client_addr = new_peer.client_addr;
         let peer = Arc::new(new_peer);
         self.client_addr_to_peers.insert(client_addr, peer.clone());
-        self.token_to_peers.insert(token, peer.clone());
-        peer
+        let peer_port = peer.socket.local_addr()?.port();
+        self.port_to_peers.insert(peer_port, peer.clone());
+        self.registry.register(&peer.socket)?;
+        Ok(peer)
     }
 
     pub fn find_peer_with_client_addr(&self, addr: &SocketAddr) -> Option<&Peer> {
@@ -96,16 +88,18 @@ impl PeerManager {
             .map(|peer| peer.borrow())
     }
 
-    pub fn find_peer_with_token(&self, token: &Token) -> Option<&Peer> {
-        self.token_to_peers.get(token).map(|peer| peer.borrow())
+    pub fn find_peer_with_port(&self, port: &u16) -> Option<&Peer> {
+        self.port_to_peers.get(port).map(|peer| peer.borrow())
     }
 
     pub fn get_all(&self) -> Vec<Arc<Peer>> {
         self.client_addr_to_peers.values().cloned().collect()
     }
 
-    pub fn remove_peer(&mut self, client_addr: &SocketAddr, token: &Token) {
-        self.client_addr_to_peers.remove(client_addr);
-        self.token_to_peers.remove(token);
+    pub fn remove_peer(&mut self, peer: &Peer) -> anyhow::Result<()> {
+        self.registry.deregister(&peer.socket)?;
+        self.client_addr_to_peers.remove(&peer.client_addr);
+        self.port_to_peers.remove(&peer.socket.local_addr()?.port());
+        Ok(())
     }
 }
