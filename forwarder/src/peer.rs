@@ -50,9 +50,9 @@ impl Peer {
 
 pub fn create_any_addr(is_ipv6: bool) -> SocketAddr {
     if is_ipv6 {
-        SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
+        SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into()
     } else {
-        SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into()
+        SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into()
     }
 }
 
