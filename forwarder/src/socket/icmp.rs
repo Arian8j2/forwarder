@@ -50,7 +50,7 @@ impl IcmpSocket {
 
 impl SocketTrait for IcmpSocket {
     fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
-        let packet = craft_icmp_packet(buffer, &self.udp_socket_addr, to);
+        let packet = craft_icmp_packet(buffer, &self.udp_socket_addr, to)?;
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
@@ -74,6 +74,7 @@ impl SocketTrait for IcmpSocket {
             let payload_len = packet.payload.len();
             buffer[..payload_len].copy_from_slice(packet.payload);
 
+            // doesn't panic because from_addr is either ipv6 or ipv4
             let mut from_addr = from_addr.as_socket().unwrap();
             from_addr.set_port(packet.src_port);
             return Ok((payload_len, from_addr));
@@ -111,8 +112,10 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
     }
 
     fn send(&self, buffer: &[u8]) -> io::Result<usize> {
-        let dst_addr = self.connected_addr.unwrap();
-        let packet = craft_icmp_packet(buffer, &self.icmp_socket.udp_socket_addr, &dst_addr);
+        let dst_addr = self
+            .connected_addr
+            .ok_or_else(|| Into::<io::Error>::into(io::ErrorKind::NotConnected))?;
+        let packet = craft_icmp_packet(buffer, &self.icmp_socket.udp_socket_addr, &dst_addr)?;
         self.icmp_socket.socket.send(&packet)
     }
 
@@ -130,7 +133,11 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
     }
 }
 
-fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &SocketAddr) -> Vec<u8> {
+fn craft_icmp_packet(
+    payload: &[u8],
+    source_addr: &SocketAddr,
+    dst_addr: &SocketAddr,
+) -> io::Result<Vec<u8>> {
     let echo_header = IcmpEchoHeader {
         id: dst_addr.port(),
         seq: source_addr.port(),
@@ -146,7 +153,7 @@ fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &Socket
         let source_ip = as_socket_addr_v6(*source_addr).ip().octets();
         let destination_ip = as_socket_addr_v6(*dst_addr).ip().octets();
         Icmpv6Header::with_checksum(icmp_type, source_ip, destination_ip, payload)
-            .unwrap()
+            .map_err(|_| Into::<io::Error>::into(io::ErrorKind::InvalidInput))?
             .to_bytes()
             .to_vec()
     };
@@ -154,7 +161,7 @@ fn craft_icmp_packet(payload: &[u8], source_addr: &SocketAddr, dst_addr: &Socket
     let mut header_and_payload = Vec::with_capacity(icmp_header.len() + payload.len());
     header_and_payload.extend_from_slice(&icmp_header);
     header_and_payload.extend_from_slice(payload);
-    header_and_payload
+    Ok(header_and_payload)
 }
 
 pub struct IcmpPacket<'a> {

@@ -36,7 +36,9 @@ impl Poll for UdpPoll {
             let peers = peers.read();
             for event in &events {
                 let port = event.token().0 as u16;
-                let peer = peers.find_peer_with_port(&port).unwrap();
+                let Some(peer) = peers.find_peer_with_port(&port) else {
+                    continue;
+                };
                 peer.set_used();
                 // each epoll event may result in multiple readiness events
                 while let Ok(size) = peer.socket.recv(&mut buffer) {

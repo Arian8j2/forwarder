@@ -135,7 +135,7 @@ fn peers_thread(
         // client <--server socket--- peer <----- remote
         server_socket
             .send_to(buffer, peer.get_client_addr())
-            .unwrap();
+            .ok();
     });
     poll.poll(peers, on_peer_recv)?;
     Ok(())
