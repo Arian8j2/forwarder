@@ -52,14 +52,16 @@ fn test_udp_double_forwarder() {
             forwarder_uri,
             second_forwarder_uri,
             Some(String::from("some_password")),
-        ).unwrap();
+        )
+        .unwrap();
     });
     std::thread::spawn(move || {
         run_server(
             second_forwarder_uri,
             remote_uri,
             Some(String::from("some_password")),
-        ).unwrap();
+        )
+        .unwrap();
     });
 
     let remote = UdpSocket::bind(remote_uri.addr).unwrap();
@@ -130,10 +132,20 @@ fn spawn_double_forwarder_and_test_connection(
     remote_uri: SocketUri,
 ) {
     std::thread::spawn(move || {
-        run_server(forwarder_uri, second_forwarder_uri, None).unwrap();
+        run_server(
+            forwarder_uri,
+            second_forwarder_uri,
+            Some(String::from("some_password")),
+        )
+        .unwrap();
     });
     std::thread::spawn(move || {
-        run_server(second_forwarder_uri, remote_uri, None).unwrap();
+        run_server(
+            second_forwarder_uri,
+            remote_uri,
+            Some(String::from("some_password")),
+        )
+        .unwrap();
     });
     test_connection(&forwarder_uri.addr, &remote_uri.addr);
 }
