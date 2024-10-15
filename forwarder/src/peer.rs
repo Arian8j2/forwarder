@@ -1,5 +1,6 @@
 use crate::poll::Registry;
-use crate::socket::{NonBlockingSocket, SocketUri};
+use crate::socket::NonBlockingSocket;
+use crate::uri::Uri;
 use std::fmt::Debug;
 use std::{
     borrow::Borrow,
@@ -17,7 +18,7 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(remote_uri: &SocketUri, client_addr: SocketAddr) -> anyhow::Result<Self> {
+    pub fn new(remote_uri: &Uri, client_addr: SocketAddr) -> anyhow::Result<Self> {
         let addr = create_any_addr(remote_uri.addr.is_ipv6());
         let mut socket = NonBlockingSocket::bind(remote_uri.protocol, &addr)?;
         socket.connect(&remote_uri.addr)?;

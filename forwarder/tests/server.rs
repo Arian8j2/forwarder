@@ -1,4 +1,4 @@
-use forwarder::{run_server, socket::SocketUri};
+use forwarder::{run_server, uri::Uri};
 use std::{
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
@@ -8,8 +8,8 @@ use std::{
 
 #[test]
 fn test_udp_forwarder() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38801/udp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38802/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38801/udp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38802/udp").unwrap();
 
     std::thread::spawn(move || {
         run_server(forwarder_uri, remote_uri, None).unwrap();
@@ -43,9 +43,9 @@ fn test_udp_forwarder() {
 
 #[test]
 fn test_udp_double_forwarder() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38803/udp").unwrap();
-    let second_forwarder_uri = SocketUri::from_str("127.0.0.1:38804/udp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38805/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38803/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("127.0.0.1:38804/udp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38805/udp").unwrap();
 
     std::thread::spawn(move || {
         run_server(
@@ -94,42 +94,42 @@ fn test_udp_double_forwarder() {
 
 #[test]
 fn test_udp_double_forwarder_back_and_forth() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38806/udp").unwrap();
-    let second_forwarder_uri = SocketUri::from_str("127.0.0.1:38807/udp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38808/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38806/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("127.0.0.1:38807/udp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38808/udp").unwrap();
     spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
 }
 
 #[test]
 #[ignore = "icmp sockets requires special access, please run this test with ./test_icmp.sh"]
 fn test_icmpv4_double_forwarder_back_and_forth() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38809/udp").unwrap();
-    let second_forwarder_uri = SocketUri::from_str("127.0.0.1:38810/icmp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38811/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38809/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("127.0.0.1:38810/icmp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38811/udp").unwrap();
     spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
 }
 
 #[test]
 fn test_udp_ipv6_double_forwarder_back_and_forth() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38812/udp").unwrap();
-    let second_forwarder_uri = SocketUri::from_str("[::1]:38813/udp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38814/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38812/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("[::1]:38813/udp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38814/udp").unwrap();
     spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
 }
 
 #[test]
 #[ignore = "icmp sockets requires special access, please run this test with ./test_icmp.sh"]
 fn test_icmpv6_double_forwarder_back_and_forth() {
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38815/udp").unwrap();
-    let second_forwarder_uri = SocketUri::from_str("[::1]:38816/icmp").unwrap();
-    let remote_uri = SocketUri::from_str("127.0.0.1:38817/udp").unwrap();
+    let forwarder_uri = Uri::from_str("127.0.0.1:38815/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("[::1]:38816/icmp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38817/udp").unwrap();
     spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
 }
 
 fn spawn_double_forwarder_and_test_connection(
-    forwarder_uri: SocketUri,
-    second_forwarder_uri: SocketUri,
-    remote_uri: SocketUri,
+    forwarder_uri: Uri,
+    second_forwarder_uri: Uri,
+    remote_uri: Uri,
 ) {
     std::thread::spawn(move || {
         run_server(

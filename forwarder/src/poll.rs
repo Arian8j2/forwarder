@@ -1,6 +1,6 @@
 use crate::{
     peer::{Peer, PeerManager},
-    socket::SocketProtocol,
+    uri::Protocol,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -26,9 +26,9 @@ pub trait Poll: Send {
 mod icmp;
 mod udp;
 
-pub fn new(protocol: SocketProtocol, is_ipv6: bool) -> anyhow::Result<Box<dyn Poll>> {
+pub fn new(protocol: Protocol, is_ipv6: bool) -> anyhow::Result<Box<dyn Poll>> {
     Ok(match protocol {
-        SocketProtocol::Udp => Box::new(udp::UdpPoll(mio::Poll::new()?)),
-        SocketProtocol::Icmp => Box::new(icmp::IcmpPoll { is_ipv6 }),
+        Protocol::Udp => Box::new(udp::UdpPoll(mio::Poll::new()?)),
+        Protocol::Icmp => Box::new(icmp::IcmpPoll { is_ipv6 }),
     })
 }

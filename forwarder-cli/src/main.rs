@@ -10,11 +10,11 @@ use std::{env, str::FromStr};
 pub struct Args {
     /// Address and protocol that forwarder will listen on
     #[arg(short, long)]
-    pub listen_uri: forwarder::socket::SocketUri,
+    pub listen_uri: forwarder::uri::Uri,
 
     /// Address and protocol of remote server that forwarder will forward to
     #[arg(short, long)]
-    pub remote_uri: forwarder::socket::SocketUri,
+    pub remote_uri: forwarder::uri::Uri,
 
     /// The packets will get encrypted/decrypted by this passphrase
     #[arg(short, long)]

@@ -1,6 +1,6 @@
 use anyhow::Context;
-use forwarder::socket::{SocketProtocol, SocketUri};
-use socket2::{Domain, Protocol, Type};
+use forwarder::uri::{Protocol, Uri};
+use socket2::{Domain, Type};
 use std::{
     mem::MaybeUninit,
     net::{SocketAddr, UdpSocket},
@@ -32,18 +32,18 @@ fn main() -> anyhow::Result<()> {
     let args = std::env::args();
     let protocol = if args.len() == 2 {
         let protocol_name = args.last().unwrap();
-        SocketProtocol::from_str(&protocol_name)
+        Protocol::from_str(&protocol_name)
             .with_context(|| format!("cannot parse protocol name '{protocol_name}'"))?
     } else {
-        SocketProtocol::Udp
+        Protocol::Udp
     };
 
-    let forwarder_uri = SocketUri::from_str("127.0.0.1:38701/udp")?;
-    let second_forwarder_uri = SocketUri {
+    let forwarder_uri = Uri::from_str("127.0.0.1:38701/udp")?;
+    let second_forwarder_uri = Uri {
         addr: "127.0.0.1:38702".parse()?,
         protocol,
     };
-    let remote_uri = SocketUri::from_str("127.0.0.1:38703/udp")?;
+    let remote_uri = Uri::from_str("127.0.0.1:38703/udp")?;
 
     std::thread::spawn(move || {
         forwarder::run_server(forwarder_uri, second_forwarder_uri, None).unwrap();
@@ -92,7 +92,8 @@ fn main() -> anyhow::Result<()> {
 /// runs a echo server that listens on address `remote_addr` and also
 /// increases the `remote_received_packet_count` on each packet that receives
 fn server_thread(remote_addr: SocketAddr, remote_received_packet_count: Arc<AtomicU32>) {
-    let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+    let socket =
+        socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
     socket.set_reuse_port(true).unwrap();
     socket.bind(&remote_addr.into()).unwrap();
 

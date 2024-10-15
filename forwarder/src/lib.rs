@@ -2,6 +2,7 @@ mod encryption;
 mod peer;
 mod poll;
 pub mod socket;
+pub mod uri;
 
 use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
@@ -9,7 +10,8 @@ use poll::Poll;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use {
     peer::{Peer, PeerManager},
-    socket::{Socket, SocketUri},
+    socket::Socket,
+    uri::Uri,
 };
 
 // all buffers that are used as recv buffer will have this size
@@ -26,8 +28,8 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 /// this function only returns early errors such as couldn't listen on `listen_uri` and
 /// couldn't create server `Poll` and ..., and will panic on other late errors
 pub fn run_server(
-    listen_uri: SocketUri,
-    remote_uri: SocketUri,
+    listen_uri: Uri,
+    remote_uri: Uri,
     passphrase: Option<String>,
 ) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
@@ -53,7 +55,7 @@ fn server_thread(
     socket: Arc<Socket>,
     peer_manager: Arc<RwLock<PeerManager>>,
     passphrase: Option<String>,
-    remote_uri: SocketUri,
+    remote_uri: Uri,
 ) {
     let mut buffer = [0u8; MAX_PACKET_SIZE];
     loop {
@@ -93,7 +95,7 @@ fn server_thread(
 
 /// prepare new `Peer` and add it to `PeerManager` and register it's epoll events
 fn add_new_peer(
-    remote_uri: &SocketUri,
+    remote_uri: &Uri,
     from_addr: SocketAddr,
     mut peers: RwLockWriteGuard<PeerManager>,
 ) -> anyhow::Result<Arc<Peer>> {

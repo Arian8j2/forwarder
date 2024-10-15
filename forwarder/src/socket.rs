@@ -1,3 +1,4 @@
+use crate::uri::Protocol;
 use std::{
     io,
     net::SocketAddr,
@@ -35,10 +36,10 @@ pub enum Socket {
 
 impl Socket {
     /// creates a socket based on `protocol` and binds it to `addr` address
-    pub fn bind(protocol: SocketProtocol, addr: &SocketAddr) -> io::Result<Self> {
+    pub fn bind(protocol: Protocol, addr: &SocketAddr) -> io::Result<Self> {
         let socket = match protocol {
-            SocketProtocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
-            SocketProtocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr)?),
+            Protocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
+            Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr)?),
         };
         Ok(socket)
     }
@@ -59,10 +60,10 @@ pub enum NonBlockingSocket {
 
 impl NonBlockingSocket {
     /// creates a socket based on `protocol` and binds it to `addr` address
-    pub fn bind(protocol: SocketProtocol, addr: &SocketAddr) -> io::Result<Self> {
+    pub fn bind(protocol: Protocol, addr: &SocketAddr) -> io::Result<Self> {
         let socket = match protocol {
-            SocketProtocol::Udp => Self::Udp(udp::NonBlockingUdpSocket::bind(addr)?),
-            SocketProtocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr)?),
+            Protocol::Udp => Self::Udp(udp::NonBlockingUdpSocket::bind(addr)?),
+            Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr)?),
         };
         Ok(socket)
     }
@@ -82,11 +83,6 @@ pub trait NonBlockingSocketTrait {
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 impl_enum_deref! { NonBlockingSocket, dyn NonBlockingSocketTrait }
-
-mod protocol;
-mod uri;
-pub use protocol::SocketProtocol;
-pub use uri::SocketUri;
 
 pub(crate) mod icmp;
 pub(crate) mod udp;
