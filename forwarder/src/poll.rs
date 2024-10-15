@@ -11,7 +11,8 @@ pub(crate) use registry::Registry;
 type OnPeerRecvCallback = dyn Fn(&Peer, &mut [u8]);
 
 pub trait Poll: Send {
-    /// blocks the current thread and polls new packets indefinitely
+    /// blocks the current thread and listens on multiple registered `NonBlockingSocket`s
+    /// at the same time and calls `on_peer_recv` on new packets from peer
     fn poll(
         &mut self,
         peers: Arc<RwLock<PeerManager>>,
