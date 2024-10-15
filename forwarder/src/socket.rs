@@ -4,12 +4,29 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-pub trait SocketTrait {
-    fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
-    fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize>;
-    fn local_addr(&self) -> io::Result<SocketAddr>;
+macro_rules! impl_enum_deref {
+    ($enum:ty, $trait:ty) => {
+        impl Deref for $enum {
+            type Target = $trait;
+            fn deref(&self) -> &Self::Target {
+                match self {
+                    Self::Udp(inner) => inner,
+                    Self::Icmp(inner) => inner,
+                }
+            }
+        }
+        impl DerefMut for $enum {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                match self {
+                    Self::Udp(inner) => inner,
+                    Self::Icmp(inner) => inner,
+                }
+            }
+        }
+    };
 }
 
+// using enum instead of vtable because i think it's more performant
 #[derive(Debug)]
 pub enum Socket {
     Udp(udp::UdpSocket),
@@ -27,12 +44,12 @@ impl Socket {
     }
 }
 
-pub trait NonBlockingSocketTrait {
-    fn connect(&mut self, addr: &SocketAddr) -> io::Result<()>;
-    fn send(&self, buffer: &[u8]) -> io::Result<usize>;
-    fn recv(&self, buffer: &mut [u8]) -> io::Result<usize>;
+pub trait SocketTrait {
+    fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
+impl_enum_deref! { Socket, dyn SocketTrait }
 
 #[derive(Debug)]
 pub enum NonBlockingSocket {
@@ -58,30 +75,13 @@ impl NonBlockingSocket {
     }
 }
 
-macro_rules! impl_enum_deref {
-    ($enum:ty, $trait:ty) => {
-        impl Deref for $enum {
-            type Target = $trait;
-            fn deref(&self) -> &Self::Target {
-                match self {
-                    Self::Udp(inner) => inner,
-                    Self::Icmp(inner) => inner,
-                }
-            }
-        }
-        impl DerefMut for $enum {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                match self {
-                    Self::Udp(inner) => inner,
-                    Self::Icmp(inner) => inner,
-                }
-            }
-        }
-    };
+pub trait NonBlockingSocketTrait {
+    fn connect(&mut self, addr: &SocketAddr) -> io::Result<()>;
+    fn send(&self, buffer: &[u8]) -> io::Result<usize>;
+    fn recv(&self, buffer: &mut [u8]) -> io::Result<usize>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
 }
-
 impl_enum_deref! { NonBlockingSocket, dyn NonBlockingSocketTrait }
-impl_enum_deref! { Socket, dyn SocketTrait }
 
 mod protocol;
 mod uri;
