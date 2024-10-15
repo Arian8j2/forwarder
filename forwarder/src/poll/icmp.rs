@@ -25,7 +25,8 @@ impl Poll for IcmpPoll {
         peers: Arc<RwLock<PeerManager>>,
         on_peer_recv: Box<dyn Fn(&Peer, &mut [u8])>,
     ) -> anyhow::Result<()> {
-        let socket: socket2::Socket = IcmpSocket::inner_bind("127.0.0.1:0".parse()?)?;
+        let listen_addr = crate::peer::create_any_addr(self.is_ipv6);
+        let socket: socket2::Socket = IcmpSocket::inner_bind(listen_addr)?;
         let mut buffer = [0u8; MAX_PACKET_SIZE];
 
         loop {

@@ -18,12 +18,7 @@ pub struct Peer {
 
 impl Peer {
     pub fn new(remote_uri: &SocketUri, client_addr: SocketAddr) -> anyhow::Result<Self> {
-        let addr: SocketAddr = match remote_uri.addr {
-            SocketAddr::V4(_) => SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into(),
-            SocketAddr::V6(_) => {
-                SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
-            }
-        };
+        let addr = create_any_addr(remote_uri.addr.is_ipv6());
         let mut socket = NonBlockingSocket::bind(remote_uri.protocol, &addr)?;
         socket.connect(&remote_uri.addr)?;
         let peer = Self {
@@ -49,6 +44,14 @@ impl Peer {
 
     pub fn get_client_addr(&self) -> &SocketAddr {
         &self.client_addr
+    }
+}
+
+pub fn create_any_addr(is_ipv6: bool) -> SocketAddr {
+    if is_ipv6 {
+        SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into()
+    } else {
+        SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into()
     }
 }
 
