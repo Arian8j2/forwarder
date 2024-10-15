@@ -1,9 +1,8 @@
-#[inline]
 pub fn xor_encrypt(data: &mut [u8], passphrase: &str) {
+    let passphrase = passphrase.as_bytes();
     for (index, byte) in data.iter_mut().enumerate() {
         let pass_index = index % passphrase.len();
-        // TODO: is this unchecked?
-        *byte ^= passphrase.as_bytes()[pass_index];
+        *byte ^= passphrase[pass_index];
     }
 }
 
