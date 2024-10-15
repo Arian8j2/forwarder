@@ -46,10 +46,10 @@ fn main() -> anyhow::Result<()> {
     let remote_uri = SocketUri::from_str("127.0.0.1:38703/udp")?;
 
     std::thread::spawn(move || {
-        forwarder::run_server(forwarder_uri, second_forwarder_uri, None);
+        forwarder::run_server(forwarder_uri, second_forwarder_uri, None).unwrap();
     });
     std::thread::spawn(move || {
-        forwarder::run_server(second_forwarder_uri, remote_uri, None);
+        forwarder::run_server(second_forwarder_uri, remote_uri, None).unwrap();
     });
 
     let remote_received_packet_count = Arc::new(AtomicU32::new(0));

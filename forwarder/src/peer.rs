@@ -64,12 +64,12 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new(registry: Box<dyn Registry>) -> anyhow::Result<Self> {
-        Ok(Self {
+    pub fn new(registry: Box<dyn Registry>) -> Self {
+        Self {
             client_addr_to_peers: BTreeMap::new(),
             port_to_peers: BTreeMap::new(),
             registry,
-        })
+        }
     }
 
     pub fn add_peer(&mut self, new_peer: Peer) -> anyhow::Result<Arc<Peer>> {

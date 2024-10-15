@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Args::parse();
     setup_logger().with_context(|| "couldn't setup logger")?;
     log_version();
-    forwarder::run_server(cli.listen_uri, cli.remote_uri, cli.passphrase);
+    forwarder::run_server(cli.listen_uri, cli.remote_uri, cli.passphrase)?;
     Ok(())
 }
 

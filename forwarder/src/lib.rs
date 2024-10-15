@@ -3,6 +3,7 @@ mod peer;
 mod poll;
 pub mod socket;
 
+use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use poll::Poll;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
@@ -17,39 +18,43 @@ const MAX_PACKET_SIZE: usize = 65535;
 /// interval that cleanup happens, also lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
-/// runs a forwarder server that listens on `listen_uri` and forwards
-/// all incoming packets to `remote_uri` and also forwards all packets
-/// that `remote_uri` returns to client that initiated the connection
+/// blocks current thread and runs a forwarder server that listens on `listen_uri` and forwards
+/// all incoming packets to `remote_uri` and also forwards all packets that `remote_uri`
+/// returns to client that initiated the connection
 ///
-/// # Be careful
-/// this function blocks the whole thread and doesn't stop until something panics
-pub fn run_server(listen_uri: SocketUri, remote_uri: SocketUri, passphrase: Option<String>) {
+/// # Error
+/// this function only returns early errors such as couldn't listen on `listen_uri` and
+/// couldn't create server `Poll` and ..., and will panic on other late errors
+pub fn run_server(
+    listen_uri: SocketUri,
+    remote_uri: SocketUri,
+    passphrase: Option<String>,
+) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
     let socket = Socket::bind(listen_uri.protocol, listen_addr)
-        .unwrap_or_else(|_| panic!("couldn't listen on '{listen_addr}'"));
+        .with_context(|| "couldn't bind server socket to address")?;
     let socket = Arc::new(socket);
     log::info!("listen on '{listen_addr}'");
 
-    // TODO: better error handling in `run_server`
     let poll = poll::new(remote_uri.protocol, remote_uri.addr.is_ipv6())
-        .unwrap_or_else(|err| panic!("couldn't create poll: {err:?}"));
+        .with_context(|| "couldn't create Poll")?;
     let registry = poll
         .get_registry()
-        .unwrap_or_else(|err| panic!("couldn't create registry: {err:?}"));
+        .with_context(|| "couldn't get registry")?;
+    let peer_manager = Arc::new(RwLock::new(PeerManager::new(registry)));
 
-    let peer_manager = PeerManager::new(registry).unwrap();
-    let peer_manager: Arc<RwLock<PeerManager>> = Arc::new(RwLock::new(peer_manager));
-    {
-        let peer_manager = peer_manager.clone();
-        let server_socket = socket.clone();
-        let passphrase = passphrase.clone();
-        std::thread::spawn(|| try_peers_thread(poll, peer_manager, server_socket, passphrase));
-    }
-    {
-        let peer_manager = peer_manager.clone();
-        std::thread::spawn(|| cleanup_thread(peer_manager));
-    }
+    spawn_peers_thread(poll, peer_manager.clone(), socket.clone(), &passphrase);
+    spawn_cleanup_thread(peer_manager.clone());
+    server_thread(socket, peer_manager, passphrase, remote_uri);
+    Ok(())
+}
 
+fn server_thread(
+    socket: Arc<Socket>,
+    peer_manager: Arc<RwLock<PeerManager>>,
+    passphrase: Option<String>,
+    remote_uri: SocketUri,
+) {
     let mut buffer = [0u8; MAX_PACKET_SIZE];
     loop {
         let Ok((size, from_addr)) = socket.recv_from(&mut buffer) else {
@@ -97,20 +102,23 @@ fn add_new_peer(
     Ok(peer)
 }
 
-/// run peers_thread and panic if it exited
-fn try_peers_thread(
+/// spawns peers_thread and panics if it exits
+fn spawn_peers_thread(
     poll: Box<dyn Poll>,
     peers: Arc<RwLock<PeerManager>>,
     server_socket: Arc<Socket>,
-    passphrase: Option<String>,
+    passphrase: &Option<String>,
 ) {
-    if let Err(error) = peers_thread(poll, peers, server_socket, passphrase) {
-        log::error!("peers thread exited with error: {error:?}");
-        panic!("peers thread exited")
-    }
+    let passphrase = passphrase.clone();
+    std::thread::spawn(|| {
+        if let Err(error) = peers_thread(poll, peers, server_socket, passphrase) {
+            log::error!("peers thread exited with error: {error:?}");
+            panic!("peers thread exited")
+        }
+    });
 }
 
-/// thread that handles all incoming packets to each `Peer`
+/// blocks current thread and handles all incoming packets to each `Peer`
 fn peers_thread(
     mut poll: Box<dyn Poll>,
     peers: Arc<RwLock<PeerManager>>,
@@ -131,15 +139,15 @@ fn peers_thread(
     Ok(())
 }
 
-/// run cleanup thread
-fn cleanup_thread(peer_manager: Arc<RwLock<PeerManager>>) {
-    loop {
+/// spawns cleanup thread
+fn spawn_cleanup_thread(peer_manager: Arc<RwLock<PeerManager>>) {
+    std::thread::spawn(move || loop {
         std::thread::sleep(CLEANUP_INTERVAL);
         try_cleanup(&peer_manager);
-    }
+    });
 }
 
-/// try cleaning peers that has not been used for about `CLEANUP_INTERVAL` duration.
+/// tries to clean peers that has not been used for about `CLEANUP_INTERVAL` duration
 fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
     let mut peers = peer_manager.write();
     let mut used_client_count = 0;
