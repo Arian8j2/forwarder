@@ -1,10 +1,7 @@
-use super::{
-    registry::{IcmpRegistry, Registry},
-    Poll,
-};
+use super::{Poll, Registry};
 use crate::{
     peer::{Peer, PeerManager},
-    socket::icmp::IcmpSocket,
+    socket::{icmp::IcmpSocket, NonBlockingSocket},
     MAX_PACKET_SIZE,
 };
 use parking_lot::RwLock;
@@ -47,5 +44,17 @@ impl Poll for IcmpPoll {
             };
             on_peer_recv(peer, icmp_packet.payload);
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct IcmpRegistry;
+// icmp doesn't need a registry because we manage it's poll ourself
+impl Registry for IcmpRegistry {
+    fn register(&self, _socket: &NonBlockingSocket) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn deregister(&self, _socket: &NonBlockingSocket) -> anyhow::Result<()> {
+        Ok(())
     }
 }

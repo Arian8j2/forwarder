@@ -1,12 +1,10 @@
-use super::{
-    registry::{Registry, UdpRegistry},
-    Poll,
-};
+use super::{Poll, Registry};
 use crate::{
     peer::{Peer, PeerManager},
+    socket::{NonBlockingSocket, NonBlockingSocketTrait},
     MAX_PACKET_SIZE,
 };
-use mio::Events;
+use mio::{unix::SourceFd, Events, Interest, Token};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -46,5 +44,28 @@ impl Poll for UdpPoll {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct UdpRegistry(pub mio::Registry);
+impl Registry for UdpRegistry {
+    fn register(&self, socket: &NonBlockingSocket) -> anyhow::Result<()> {
+        let socket = socket.as_udp().unwrap();
+        let local_port = socket.local_addr()?.port();
+        self.0.register(
+            &mut SourceFd(&socket.as_raw_fd()),
+            Token(local_port.into()),
+            Interest::READABLE,
+        )?;
+        Ok(())
+    }
+
+    fn deregister(&self, socket: &NonBlockingSocket) -> anyhow::Result<()> {
+        let socket = socket.as_udp().unwrap();
+        let raw_fd = socket.as_raw_fd();
+        let source = &mut SourceFd(&raw_fd);
+        self.0.deregister(source)?;
+        Ok(())
     }
 }
