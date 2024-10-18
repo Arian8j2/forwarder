@@ -14,31 +14,31 @@ use {
     uri::Uri,
 };
 
-// all buffers that are used as recv buffer will have this size
+// all buffers that are used for receiving and sending packet will use this size
 const MAX_PACKET_SIZE: usize = 65535;
 
-/// interval that cleanup happens, also lowering this result in lower allowed unused time
+/// interval that cleanup happens, lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
 /// blocks current thread and runs a forwarder server that listens on `listen_uri` and forwards
-/// all incoming packets to `remote_uri` and also forwards all packets that `remote_uri`
-/// returns to client that initiated the connection
+/// all incoming packets to `remote_uri` and also forwards all packets returned by `remote_uri`
+/// to the client that initiated the connection
 ///
 /// # Error
-/// this function only returns early errors such as couldn't listen on `listen_uri` and
-/// couldn't create server `Poll` and ..., and will panic on other late errors
+/// this function only returns early errors, such as being unable to listen on `listen_uri` or
+/// failing to create server `Poll` and ... it will panic on other late errors
 pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
-    let socket = Socket::bind(listen_uri.protocol, listen_addr)
-        .with_context(|| "couldn't bind server socket to address")?;
+    let socket =
+        Socket::bind(listen_uri.protocol, listen_addr).with_context(|| "couldn't create server")?;
     let socket = Arc::new(socket);
     log::info!("listen on '{listen_addr}'");
 
     let poll = poll::new(remote_uri.protocol, remote_uri.addr.is_ipv6())
-        .with_context(|| "couldn't create Poll")?;
+        .with_context(|| "couldn't create poll")?;
     let registry = poll
         .get_registry()
-        .with_context(|| "couldn't get registry")?;
+        .with_context(|| "couldn't get registry of poll")?;
     let peer_manager = Arc::new(RwLock::new(PeerManager::new(registry)));
 
     spawn_peers_thread(poll, peer_manager.clone(), socket.clone(), &passphrase);
@@ -47,6 +47,7 @@ pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyh
     Ok(())
 }
 
+/// runs server in current thread
 fn run_server(
     socket: Arc<Socket>,
     peer_manager: Arc<RwLock<PeerManager>>,
@@ -58,12 +59,11 @@ fn run_server(
         let Ok((size, from_addr)) = socket.recv_from(&mut buffer) else {
             continue;
         };
-
         if let Some(ref passphrase) = passphrase {
             encryption::xor_encrypt(&mut buffer[..size], passphrase)
         }
         // lock needs to be upgrdable so when new peer appeared
-        // be able to append it to the peers list
+        // it be able to append it to the peers list
         let peers = peer_manager.upgradable_read();
         match peers.find_peer_with_client_addr(&from_addr) {
             Some(peer) => {
@@ -89,7 +89,7 @@ fn run_server(
     }
 }
 
-/// prepare new `Peer` and add it to `PeerManager` and register it's epoll events
+/// creates new `Peer` and appends it to the `PeerManager`
 fn add_new_peer(
     remote_uri: &Uri,
     from_addr: SocketAddr,
