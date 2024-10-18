@@ -27,11 +27,7 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 /// # Error
 /// this function only returns early errors such as couldn't listen on `listen_uri` and
 /// couldn't create server `Poll` and ..., and will panic on other late errors
-pub fn run_server(
-    listen_uri: Uri,
-    remote_uri: Uri,
-    passphrase: Option<String>,
-) -> anyhow::Result<()> {
+pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
     let socket = Socket::bind(listen_uri.protocol, listen_addr)
         .with_context(|| "couldn't bind server socket to address")?;
@@ -47,11 +43,11 @@ pub fn run_server(
 
     spawn_peers_thread(poll, peer_manager.clone(), socket.clone(), &passphrase);
     spawn_cleanup_thread(peer_manager.clone());
-    server_thread(socket, peer_manager, passphrase, remote_uri);
+    run_server(socket, peer_manager, passphrase, remote_uri);
     Ok(())
 }
 
-fn server_thread(
+fn run_server(
     socket: Arc<Socket>,
     peer_manager: Arc<RwLock<PeerManager>>,
     passphrase: Option<String>,
@@ -133,9 +129,7 @@ fn peers_thread(
             encryption::xor_encrypt(buffer, passphrase)
         }
         // client <--server socket--- peer <----- remote
-        server_socket
-            .send_to(buffer, peer.get_client_addr())
-            .ok();
+        server_socket.send_to(buffer, peer.get_client_addr()).ok();
     });
     poll.poll(peers, on_peer_recv)?;
     Ok(())

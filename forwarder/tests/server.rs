@@ -1,4 +1,4 @@
-use forwarder::{run_server, uri::Uri};
+use forwarder::uri::Uri;
 use std::{
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
@@ -12,7 +12,7 @@ fn test_udp_forwarder() {
     let remote_uri = Uri::from_str("127.0.0.1:38802/udp").unwrap();
 
     std::thread::spawn(move || {
-        run_server(forwarder_uri, remote_uri, None).unwrap();
+        forwarder::run(forwarder_uri, remote_uri, None).unwrap();
     });
 
     let remote = UdpSocket::bind(remote_uri.addr).unwrap();
@@ -48,7 +48,7 @@ fn test_udp_double_forwarder() {
     let remote_uri = Uri::from_str("127.0.0.1:38805/udp").unwrap();
 
     std::thread::spawn(move || {
-        run_server(
+        forwarder::run(
             forwarder_uri,
             second_forwarder_uri,
             Some(String::from("some_password")),
@@ -56,7 +56,7 @@ fn test_udp_double_forwarder() {
         .unwrap();
     });
     std::thread::spawn(move || {
-        run_server(
+        forwarder::run(
             second_forwarder_uri,
             remote_uri,
             Some(String::from("some_password")),
@@ -132,7 +132,7 @@ fn spawn_double_forwarder_and_test_connection(
     remote_uri: Uri,
 ) {
     std::thread::spawn(move || {
-        run_server(
+        forwarder::run(
             forwarder_uri,
             second_forwarder_uri,
             Some(String::from("some_password")),
@@ -140,7 +140,7 @@ fn spawn_double_forwarder_and_test_connection(
         .unwrap();
     });
     std::thread::spawn(move || {
-        run_server(
+        forwarder::run(
             second_forwarder_uri,
             remote_uri,
             Some(String::from("some_password")),
