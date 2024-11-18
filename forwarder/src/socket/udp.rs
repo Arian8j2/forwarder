@@ -1,9 +1,5 @@
 use super::{NonBlockingSocketTrait, SocketTrait};
-use std::{
-    io,
-    net::SocketAddr,
-    os::fd::{AsRawFd, RawFd},
-};
+use std::{io, net::SocketAddr};
 
 #[derive(Debug)]
 pub struct UdpSocket(std::net::UdpSocket);
@@ -30,17 +26,16 @@ impl SocketTrait for UdpSocket {
 }
 
 #[derive(Debug)]
-pub struct NonBlockingUdpSocket(std::net::UdpSocket);
+pub struct NonBlockingUdpSocket(mio::net::UdpSocket);
 
 impl NonBlockingUdpSocket {
     pub fn bind(address: &SocketAddr) -> io::Result<Self> {
-        let socket = std::net::UdpSocket::bind(address)?;
-        socket.set_nonblocking(true)?;
+        let socket = mio::net::UdpSocket::bind(*address)?;
         Ok(Self(socket))
     }
 
-    pub fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
+    pub fn as_inner(&mut self) -> &mut mio::net::UdpSocket {
+        &mut self.0
     }
 }
 
@@ -50,7 +45,7 @@ impl NonBlockingSocketTrait for NonBlockingUdpSocket {
     }
 
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
-        self.0.connect(addr)
+        self.0.connect(*addr)
     }
 
     fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {

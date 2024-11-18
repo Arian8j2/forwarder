@@ -150,9 +150,9 @@ fn try_cleanup(peer_manager: &RwLock<PeerManager>) {
     for peer in peers.get_all() {
         let used = peer.reset_used();
         if !used {
-            let client_addr = peer.get_client_addr();
+            let client_addr = *peer.get_client_addr();
             log::info!("cleaning peer that handled '{client_addr}'");
-            if let Err(error) = peers.remove_peer(&peer) {
+            if let Err(error) = peers.remove_peer(peer) {
                 log::warn!("couldn't remove peer of '{client_addr}': {error:?}");
             }
         } else {

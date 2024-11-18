@@ -51,10 +51,10 @@ impl Poll for IcmpPoll {
 pub struct IcmpRegistry;
 // icmp doesn't need a registry because we manage it's poll ourself
 impl Registry for IcmpRegistry {
-    fn register(&self, _socket: &NonBlockingSocket) -> anyhow::Result<()> {
+    fn register(&self, _socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
         Ok(())
     }
-    fn deregister(&self, _socket: &NonBlockingSocket) -> anyhow::Result<()> {
+    fn deregister(&self, _socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
         Ok(())
     }
 }

@@ -68,7 +68,7 @@ impl NonBlockingSocket {
         Ok(socket)
     }
 
-    pub fn as_udp(&self) -> Option<&udp::NonBlockingUdpSocket> {
+    pub fn as_mut_udp(&mut self) -> Option<&mut udp::NonBlockingUdpSocket> {
         match self {
             Self::Udp(inner) => Some(inner),
             _ => None,

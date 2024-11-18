@@ -4,7 +4,7 @@ use crate::{
     socket::{NonBlockingSocket, NonBlockingSocketTrait},
     MAX_PACKET_SIZE,
 };
-use mio::{unix::SourceFd, Events, Interest, Token};
+use mio::{Events, Interest, Token};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -50,22 +50,20 @@ impl Poll for UdpPoll {
 #[derive(Debug)]
 pub struct UdpRegistry(pub mio::Registry);
 impl Registry for UdpRegistry {
-    fn register(&self, socket: &NonBlockingSocket) -> anyhow::Result<()> {
-        let socket = socket.as_udp().unwrap();
+    fn register(&self, socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
+        let socket = socket.as_mut_udp().unwrap();
         let local_port = socket.local_addr()?.port();
         self.0.register(
-            &mut SourceFd(&socket.as_raw_fd()),
+            socket.as_inner(),
             Token(local_port.into()),
             Interest::READABLE,
         )?;
         Ok(())
     }
 
-    fn deregister(&self, socket: &NonBlockingSocket) -> anyhow::Result<()> {
-        let socket = socket.as_udp().unwrap();
-        let raw_fd = socket.as_raw_fd();
-        let source = &mut SourceFd(&raw_fd);
-        self.0.deregister(source)?;
+    fn deregister(&self, socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
+        let socket = socket.as_mut_udp().unwrap();
+        self.0.deregister(socket.as_inner())?;
         Ok(())
     }
 }

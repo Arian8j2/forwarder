@@ -25,8 +25,8 @@ pub trait Poll: Send {
 /// trait that allows others to register socket to `Poll`
 pub trait Registry: Send + Sync {
     // need Sync because parking_lot::RwLock needs inner to be Sync
-    fn register(&self, socket: &NonBlockingSocket) -> anyhow::Result<()>;
-    fn deregister(&self, socket: &NonBlockingSocket) -> anyhow::Result<()>;
+    fn register(&self, socket: &mut NonBlockingSocket) -> anyhow::Result<()>;
+    fn deregister(&self, socket: &mut NonBlockingSocket) -> anyhow::Result<()>;
 }
 
 mod icmp;

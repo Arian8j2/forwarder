@@ -76,13 +76,13 @@ impl PeerManager {
         }
     }
 
-    pub fn add_peer(&mut self, new_peer: Peer) -> anyhow::Result<Arc<Peer>> {
+    pub fn add_peer(&mut self, mut new_peer: Peer) -> anyhow::Result<Arc<Peer>> {
         let client_addr = new_peer.client_addr;
+        self.registry.register(&mut new_peer.socket)?;
         let peer = Arc::new(new_peer);
         self.client_addr_to_peers.insert(client_addr, peer.clone());
         let peer_port = peer.socket.local_addr()?.port();
         self.port_to_peers.insert(peer_port, peer.clone());
-        self.registry.register(&peer.socket)?;
         Ok(peer)
     }
 
@@ -100,10 +100,13 @@ impl PeerManager {
         self.client_addr_to_peers.values().cloned().collect()
     }
 
-    pub fn remove_peer(&mut self, peer: &Peer) -> anyhow::Result<()> {
-        self.registry.deregister(&peer.socket)?;
+    pub fn remove_peer(&mut self, peer: Arc<Peer>) -> anyhow::Result<()> {
         self.client_addr_to_peers.remove(&peer.client_addr);
         self.port_to_peers.remove(&peer.socket.local_addr()?.port());
+
+        let mut peer =
+            Arc::try_unwrap(peer).map_err(|_| anyhow::anyhow!("can't unwrap Arc<peer>"))?;
+        self.registry.deregister(&mut peer.socket)?;
         Ok(())
     }
 }
