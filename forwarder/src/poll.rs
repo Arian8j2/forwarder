@@ -4,7 +4,7 @@ use crate::{
     uri::Protocol,
 };
 use parking_lot::RwLock;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 type OnPeerRecvCallback = dyn Fn(&Peer, &mut [u8]);
 
@@ -32,9 +32,9 @@ pub trait Registry: Send + Sync {
 mod icmp;
 mod udp;
 
-pub fn new(protocol: Protocol, is_ipv6: bool) -> anyhow::Result<Box<dyn Poll>> {
+pub fn new(protocol: Protocol, remote_addr: SocketAddr) -> anyhow::Result<Box<dyn Poll>> {
     Ok(match protocol {
         Protocol::Udp => Box::new(udp::UdpPoll(mio::Poll::new()?)),
-        Protocol::Icmp => Box::new(icmp::IcmpPoll { is_ipv6 }),
+        Protocol::Icmp => Box::new(icmp::IcmpPoll { remote_addr }),
     })
 }

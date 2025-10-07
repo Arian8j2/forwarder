@@ -5,11 +5,11 @@ use crate::{
     MAX_PACKET_SIZE,
 };
 use parking_lot::RwLock;
-use std::{mem::MaybeUninit, sync::Arc};
+use std::{mem::MaybeUninit, net::SocketAddr, sync::Arc};
 
 #[derive(Debug)]
 pub struct IcmpPoll {
-    pub is_ipv6: bool,
+    pub remote_addr: SocketAddr,
 }
 
 impl Poll for IcmpPoll {
@@ -22,9 +22,19 @@ impl Poll for IcmpPoll {
         peers: Arc<RwLock<PeerManager>>,
         on_peer_recv: Box<dyn Fn(&Peer, &mut [u8])>,
     ) -> anyhow::Result<()> {
-        let listen_addr = crate::peer::create_any_addr(self.is_ipv6);
+        let is_ipv6 = self.remote_addr.is_ipv6();
+        let listen_addr = crate::peer::create_any_addr(is_ipv6);
         let socket: socket2::Socket = IcmpSocket::inner_bind(listen_addr)?;
         let mut buffer = [0u8; MAX_PACKET_SIZE];
+
+        #[cfg(target_os = "linux")]
+        if !is_ipv6 {
+            let filter = create_bpf_filter(self.remote_addr.port());
+            if let Err(error) = socket.attach_filter(&filter) {
+                // filter is not required so continue if it errors
+                log::warn!("couldn't attach bpf filter to socket: {error:?}");
+            }
+        }
 
         loop {
             let Ok(size) =
@@ -33,7 +43,7 @@ impl Poll for IcmpPoll {
                 continue;
             };
             let Some(icmp_packet) =
-                crate::socket::icmp::parse_icmp_packet(&mut buffer[..size], self.is_ipv6)
+                crate::socket::icmp::parse_icmp_packet(&mut buffer[..size], is_ipv6)
             else {
                 continue;
             };
@@ -45,6 +55,17 @@ impl Poll for IcmpPoll {
             on_peer_recv(peer, icmp_packet.payload);
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn create_bpf_filter(remote_port: u16) -> [libc::sock_filter; 4] {
+    [
+        (0x28, 0, 0, 0x0000001a),         // ldh [26]          ; icmp sequence
+        (0x15, 0, 1, remote_port as u32), // jne #port, drop
+        (0x06, 0, 0, 0xffffffff),         // ret #-1
+        (0x06, 0, 0, 0000000000),         // drop: ret #0
+    ]
+    .map(|(code, jt, jf, k)| libc::sock_filter { code, jt, jf, k })
 }
 
 #[derive(Debug)]
