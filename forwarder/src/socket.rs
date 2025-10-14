@@ -47,7 +47,7 @@ impl Socket {
 
 pub trait SocketTrait {
     fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
-    fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize>;
+    fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 impl_enum_deref! { Socket, dyn SocketTrait }
@@ -78,7 +78,7 @@ impl NonBlockingSocket {
 
 pub trait NonBlockingSocketTrait {
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()>;
-    fn send(&self, buffer: &[u8]) -> io::Result<usize>;
+    fn send(&self, buffer: &mut [u8]) -> io::Result<usize>;
     fn recv(&self, buffer: &mut [u8]) -> io::Result<usize>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }

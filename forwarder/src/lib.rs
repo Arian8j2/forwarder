@@ -7,6 +7,7 @@ pub mod uri;
 use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use poll::Poll;
+use socket::icmp::ICMP_RESERVED_BYTES_LEN;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use {
     peer::{Peer, PeerManager},
@@ -54,9 +55,9 @@ fn run_server(
     passphrase: Option<String>,
     remote_uri: Uri,
 ) {
-    let mut buffer = [0u8; MAX_PACKET_SIZE];
+    let buffer = &mut [0u8; ICMP_RESERVED_BYTES_LEN + MAX_PACKET_SIZE][ICMP_RESERVED_BYTES_LEN..];
     loop {
-        let Ok((size, from_addr)) = socket.recv_from(&mut buffer) else {
+        let Ok((size, from_addr)) = socket.recv_from(buffer) else {
             continue;
         };
         if let Some(ref passphrase) = passphrase {
@@ -69,7 +70,7 @@ fn run_server(
             Some(peer) => {
                 peer.set_used();
                 // client ---> server socket ---peer socket----> remote
-                peer.socket.send(&buffer[..size]).ok();
+                peer.socket.send(&mut buffer[..size]).ok();
             }
             None => {
                 log::info!("new client '{from_addr}'");
@@ -83,7 +84,7 @@ fn run_server(
                 };
                 // peer is just created so the `used` is true
                 // and doesn't need to set it
-                peer.socket.send(&buffer[..size]).ok();
+                peer.socket.send(&mut buffer[..size]).ok();
             }
         };
     }

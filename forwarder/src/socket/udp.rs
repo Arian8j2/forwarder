@@ -16,7 +16,7 @@ impl SocketTrait for UdpSocket {
         self.0.recv_from(buffer)
     }
 
-    fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
+    fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize> {
         self.0.send_to(buffer, to)
     }
 
@@ -40,7 +40,7 @@ impl NonBlockingUdpSocket {
 }
 
 impl NonBlockingSocketTrait for NonBlockingUdpSocket {
-    fn send(&self, buffer: &[u8]) -> io::Result<usize> {
+    fn send(&self, buffer: &mut [u8]) -> io::Result<usize> {
         self.0.send(buffer)
     }
 

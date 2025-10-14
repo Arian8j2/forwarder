@@ -1,11 +1,14 @@
 use super::{Poll, Registry};
 use crate::{
     peer::{Peer, PeerManager},
-    socket::{icmp::IcmpSocket, NonBlockingSocket},
+    socket::{
+        icmp::{cast_maybe_uninit, header_offset, parse_icmp_packet, IcmpSocket, ICMP_HEADER_LEN},
+        NonBlockingSocket,
+    },
     MAX_PACKET_SIZE,
 };
 use parking_lot::RwLock;
-use std::{mem::MaybeUninit, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct IcmpPoll {
@@ -25,24 +28,22 @@ impl Poll for IcmpPoll {
         let listen_addr = crate::peer::create_any_addr(self.is_ipv6);
         let socket: socket2::Socket = IcmpSocket::inner_bind(listen_addr)?;
         let mut buffer = [0u8; MAX_PACKET_SIZE];
+        let header_offset = header_offset(self.is_ipv6);
 
         loop {
-            let Ok(size) =
-                socket.recv(unsafe { &mut *(&mut buffer as *mut [u8] as *mut [MaybeUninit<u8>]) })
-            else {
+            let Ok(size) = socket.recv(cast_maybe_uninit(&mut buffer)) else {
                 continue;
             };
-            let Some(icmp_packet) =
-                crate::socket::icmp::parse_icmp_packet(&mut buffer[..size], self.is_ipv6)
+            let Some(icmp_packet) = parse_icmp_packet(&buffer[header_offset..size], self.is_ipv6)
             else {
                 continue;
             };
             let peers = peers.read();
-            let port = icmp_packet.dst_port;
-            let Some(peer) = peers.find_peer_with_port(&port) else {
+            let Some(peer) = peers.find_peer_with_port(&icmp_packet.dst_port) else {
                 continue;
             };
-            on_peer_recv(peer, icmp_packet.payload);
+            let payload_offset = header_offset + ICMP_HEADER_LEN;
+            on_peer_recv(peer, &mut buffer[payload_offset..size]);
         }
     }
 }

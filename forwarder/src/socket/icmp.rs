@@ -1,17 +1,16 @@
-mod ether_helper;
-
 use super::{NonBlockingSocketTrait, SocketTrait};
-use crate::MAX_PACKET_SIZE;
-use ether_helper::IcmpSlice;
-use etherparse::{
-    IcmpEchoHeader, Icmpv4Header, Icmpv4Type, Icmpv6Header, Icmpv6Type, Ipv4HeaderSlice,
-};
+use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv6Message, Icmpv6Packet, IPV4_HEADER_LEN};
 use socket2::{Domain, Protocol, Type};
 use std::{
     io,
     mem::MaybeUninit,
     net::{SocketAddr, SocketAddrV6},
+    slice,
 };
+
+pub const ICMP_HEADER_LEN: usize = 8;
+
+pub const ICMP_RESERVED_BYTES_LEN: usize = ICMP_HEADER_LEN + IPV4_HEADER_LEN;
 
 /// `IcmpSocket` that is very similiar to `UdpSocket`
 #[derive(Debug)]
@@ -49,34 +48,38 @@ impl IcmpSocket {
 }
 
 impl SocketTrait for IcmpSocket {
-    fn send_to(&self, buffer: &[u8], to: &SocketAddr) -> io::Result<usize> {
-        let packet = craft_icmp_packet(buffer, &self.udp_socket_addr, to)?;
+    fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize> {
+        let buffer_with_header = unsafe { slice_sub(buffer, ICMP_HEADER_LEN) };
+        craft_icmp_packet(buffer_with_header, &self.udp_socket_addr, to);
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
-        self.socket.send_to(&packet, &to_addr.into())
+        self.socket.send_to(buffer_with_header, &to_addr.into())
     }
 
     fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        let mut second_buffer = [0u8; MAX_PACKET_SIZE];
-        let local_addr = self.local_addr()?;
+        let local_addr = self.udp_socket_addr;
         loop {
-            let (size, from_addr) = self.socket.recv_from(unsafe {
-                &mut *(&mut second_buffer as *mut [u8] as *mut [MaybeUninit<u8>])
-            })?;
-            let Some(packet) = parse_icmp_packet(&mut second_buffer[..size], local_addr.is_ipv6())
-            else {
+            let icmp_header_offset = header_offset(local_addr.is_ipv6());
+
+            // aligning in a way that the icmp payload gets written into buffer
+            let payload_offset = icmp_header_offset + ICMP_HEADER_LEN;
+            let buffer_with_header = unsafe { slice_sub(buffer, payload_offset) };
+
+            let (size, from_addr) = self
+                .socket
+                .recv_from(cast_maybe_uninit(buffer_with_header))?;
+            let icmp_packet = &mut buffer_with_header[icmp_header_offset..size];
+            let Some(packet) = parse_icmp_packet(icmp_packet, local_addr.is_ipv6()) else {
                 continue;
             };
             if packet.dst_port != local_addr.port() {
                 continue;
             }
-            let payload_len = packet.payload.len();
-            buffer[..payload_len].copy_from_slice(packet.payload);
-
             // doesn't panic because from_addr is either ipv6 or ipv4
             let mut from_addr = from_addr.as_socket().unwrap();
             from_addr.set_port(packet.src_port);
+            let payload_len = size - icmp_header_offset - ICMP_HEADER_LEN;
             return Ok((payload_len, from_addr));
         }
     }
@@ -91,7 +94,7 @@ pub struct NonBlockingIcmpSocket {
     icmp_socket: IcmpSocket,
     // we need to have a copy of connected addr because we
     // need it to craft packet, in ipv6 we need addr + port and
-    // int ipv4 we need port
+    // in ipv4 we need port
     connected_addr: Option<SocketAddr>,
 }
 
@@ -111,12 +114,18 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
         unreachable!("IcmpPoll doesn't call recv on socket, it has it's own master socket");
     }
 
-    fn send(&self, buffer: &[u8]) -> io::Result<usize> {
+    fn send(&self, buffer: &mut [u8]) -> io::Result<usize> {
         let dst_addr = self
             .connected_addr
             .ok_or_else(|| Into::<io::Error>::into(io::ErrorKind::NotConnected))?;
-        let packet = craft_icmp_packet(buffer, &self.icmp_socket.udp_socket_addr, &dst_addr)?;
-        self.icmp_socket.socket.send(&packet)
+        // it's safe because the main buffer has reserved bytes
+        let buffer_with_header = unsafe { slice_sub(buffer, ICMP_HEADER_LEN) };
+        craft_icmp_packet(
+            buffer_with_header,
+            &self.icmp_socket.udp_socket_addr,
+            &dst_addr,
+        );
+        self.icmp_socket.socket.send(buffer_with_header)
     }
 
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
@@ -134,88 +143,72 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
 }
 
 fn craft_icmp_packet(
-    payload: &[u8],
+    buffer_with_header: &mut [u8],
     source_addr: &SocketAddr,
     dst_addr: &SocketAddr,
-) -> io::Result<Vec<u8>> {
-    let echo_header = IcmpEchoHeader {
-        id: dst_addr.port(),
-        seq: source_addr.port(),
-    };
+) {
+    let mut icmp_packet = Icmpv4Packet::new_unchecked(buffer_with_header);
+    icmp_packet.set_echo_ident(dst_addr.port());
+    icmp_packet.set_echo_seq_no(source_addr.port());
+    icmp_packet.set_msg_code(0);
 
-    let icmp_header = if source_addr.is_ipv4() {
-        let icmp_type = Icmpv4Type::EchoRequest(echo_header);
-        Icmpv4Header::with_checksum(icmp_type, payload)
-            .to_bytes()
-            .to_vec()
+    if source_addr.is_ipv4() {
+        icmp_packet.set_msg_type(Icmpv4Message::EchoRequest);
+        icmp_packet.fill_checksum();
     } else {
-        let icmp_type = Icmpv6Type::EchoRequest(echo_header);
-        let source_ip = as_socket_addr_v6(*source_addr).ip().octets();
-        let destination_ip = as_socket_addr_v6(*dst_addr).ip().octets();
-        Icmpv6Header::with_checksum(icmp_type, source_ip, destination_ip, payload)
-            .map_err(|_| Into::<io::Error>::into(io::ErrorKind::InvalidInput))?
-            .to_bytes()
-            .to_vec()
-    };
-
-    let mut header_and_payload = Vec::with_capacity(icmp_header.len() + payload.len());
-    header_and_payload.extend_from_slice(&icmp_header);
-    header_and_payload.extend_from_slice(payload);
-    Ok(header_and_payload)
+        let mut icmp_packet = Icmpv6Packet::new_unchecked(icmp_packet.into_inner());
+        icmp_packet.set_msg_type(Icmpv6Message::EchoRequest);
+        icmp_packet.fill_checksum(
+            as_socket_addr_v6(*source_addr).ip(),
+            as_socket_addr_v6(*dst_addr).ip(),
+        );
+    }
 }
 
-pub struct IcmpPacket<'a> {
-    pub payload: &'a mut [u8],
+pub struct IcmpPacket {
     pub src_port: u16,
     pub dst_port: u16,
 }
 
-pub fn parse_icmp_packet(packet: &mut [u8], is_ipv6: bool) -> Option<IcmpPacket<'_>> {
-    // according to 'icmp6' man page on freebsd (seems like linux does this too):
-    // 'Incoming packets on the socket are received with the IPv6 header and any extension headers removed'
-    //
-    // but on 'icmp' man page that is for icmpv4, it says:
-    // 'Incoming packets are received with the IP header and options intact.'
-    //
-    // so we need to parse header in icmpv4 but not in icmpv6
-    let payload_start_index = if is_ipv6 {
-        0
-    } else {
-        let ip_header = Ipv4HeaderSlice::from_slice(packet).ok()?;
-        let payload_len: usize = ip_header.payload_len().into();
-        packet.len() - payload_len
-    };
+pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool) -> Option<IcmpPacket> {
+    let icmp_packet = Icmpv4Packet::new_checked(packet).ok()?;
 
-    let icmp = IcmpSlice::from_slice(is_ipv6, &packet[payload_start_index..])?;
     // we only work with icmp echo requests so if any other type of icmp
     // packet we receive we just ignore it
-    let correct_icmp_type = if is_ipv6 {
-        etherparse::icmpv6::TYPE_ECHO_REQUEST
+    let correct_type = if is_ipv6 {
+        // icmpv6 echo request
+        Icmpv4Message::Unknown(0x80)
     } else {
-        etherparse::icmpv4::TYPE_ECHO_REQUEST
+        Icmpv4Message::EchoRequest
     };
-    if icmp.type_u8() != correct_icmp_type || icmp.code_u8() != 0 {
+    if icmp_packet.msg_type() != correct_type || icmp_packet.msg_code() != 0 {
         return None;
     }
 
-    let bytes5to8 = icmp.bytes5to8();
     // icmp is on layer 3 so it has no idea about ports
-    // we use identification part of icmp packet as destination port
-    // to identify packets that are really meant for us
-    let dst_port = u16::from_be_bytes([bytes5to8[0], bytes5to8[1]]);
+    // we use identifier and sequence number of icmp packet as ports
+    let dst_port = icmp_packet.echo_ident();
+    let src_port = icmp_packet.echo_seq_no();
+    Some(IcmpPacket { src_port, dst_port })
+}
 
-    // we also use sequence part of icmp packet as source port
-    let src_port = u16::from_be_bytes([bytes5to8[2], bytes5to8[3]]);
+pub fn header_offset(is_ipv6: bool) -> usize {
+    // in icmpv4 when calling recv the kernel will include ipv4 header
+    // in the buffer but for icmpv6 this is not the case
+    if is_ipv6 {
+        0
+    } else {
+        IPV4_HEADER_LEN
+    }
+}
 
-    let payload_len = icmp.payload().len();
-    let total_len = packet.len();
-    let payload = &mut packet[total_len - payload_len..];
+unsafe fn slice_sub(buffer: &mut [u8], count: usize) -> &mut [u8] {
+    slice::from_raw_parts_mut(buffer.as_mut_ptr().sub(count), count + buffer.len())
+}
 
-    Some(IcmpPacket {
-        payload,
-        src_port,
-        dst_port,
-    })
+pub fn cast_maybe_uninit(buffer: &mut [u8]) -> &mut [MaybeUninit<u8>] {
+    // fucking rust with its bullshits
+    unsafe { &mut *(buffer as *mut [u8] as *mut [MaybeUninit<u8>]) }
 }
 
 fn as_socket_addr_v6(socket_addr: SocketAddr) -> SocketAddrV6 {
