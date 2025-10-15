@@ -33,7 +33,8 @@ impl Poll for IcmpPoll {
             let Ok(size) = socket.recv(cast_maybe_uninit(&mut buffer)) else {
                 continue;
             };
-            let Some(icmp_packet) = parse_icmp_packet(&buffer[header_offset..size], self.is_ipv6)
+            let Some(icmp_packet) =
+                parse_icmp_packet(&buffer[header_offset..size], self.is_ipv6, true)
             else {
                 continue;
             };

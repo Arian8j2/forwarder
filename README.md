@@ -25,5 +25,3 @@ forwarder -l 0.0.0.0:1001/udp -r 127.0.0.1:1050/icmp
 forwarder -l 127.0.0.1:1050/icmp -r 127.0.0.1:1002/udp
 ```
 ![Screenshot_2024-01-19_1705683004](https://github.com/Arian8j2/forwarder/assets/56799194/bafe0681-abec-48cb-8ea7-1651d983c9e6)
-> [!WARNING]
-> UDP over ICMP currently may not work behind NAT or NAPT, because forwarder doesn't try to simulate real icmp handshake (request, reply) and only sends echo request and also the sequence and id of icmp packet is used as source and destination port to avoid further MTU issues, also i'm using forwarder only on servers so the main reason for this behavior is that.

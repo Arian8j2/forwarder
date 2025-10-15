@@ -50,7 +50,7 @@ impl IcmpSocket {
 impl SocketTrait for IcmpSocket {
     fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize> {
         let buffer_with_header = unsafe { slice_sub(buffer, ICMP_HEADER_LEN) };
-        craft_icmp_packet(buffer_with_header, &self.udp_socket_addr, to);
+        craft_icmp_packet(buffer_with_header, &self.udp_socket_addr, to, true);
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
@@ -70,7 +70,7 @@ impl SocketTrait for IcmpSocket {
                 .socket
                 .recv_from(cast_maybe_uninit(buffer_with_header))?;
             let icmp_packet = &mut buffer_with_header[icmp_header_offset..size];
-            let Some(packet) = parse_icmp_packet(icmp_packet, local_addr.is_ipv6()) else {
+            let Some(packet) = parse_icmp_packet(icmp_packet, local_addr.is_ipv6(), false) else {
                 continue;
             };
             if packet.dst_port != local_addr.port() {
@@ -120,6 +120,7 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
             buffer_with_header,
             &self.icmp_socket.udp_socket_addr,
             &dst_addr,
+            false,
         );
         self.icmp_socket.socket.send(buffer_with_header)
     }
@@ -140,21 +141,37 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
 
 fn craft_icmp_packet(
     buffer_with_header: &mut [u8],
-    source_addr: &SocketAddr,
+    src_addr: &SocketAddr,
     dst_addr: &SocketAddr,
+    is_echo_reply: bool,
 ) {
     let mut icmp_packet = Icmpv4Packet::new_unchecked(buffer_with_header);
-    icmp_packet.set_echo_ident(dst_addr.port());
-    icmp_packet.set_echo_seq_no(source_addr.port());
+    // point of this is to make sure echo ident of request and corresponding reply
+    // remains the same, so nat could figure out who are we talking to
+    let (ident, seq) = if is_echo_reply {
+        (dst_addr.port(), src_addr.port())
+    } else {
+        (src_addr.port(), dst_addr.port())
+    };
+    icmp_packet.set_echo_ident(ident);
+    icmp_packet.set_echo_seq_no(seq);
     icmp_packet.set_msg_code(0);
 
-    if source_addr.is_ipv4() {
-        icmp_packet.set_msg_type(Icmpv4Message::EchoRequest);
+    if src_addr.is_ipv4() {
+        icmp_packet.set_msg_type(if is_echo_reply {
+            Icmpv4Message::EchoReply
+        } else {
+            Icmpv4Message::EchoRequest
+        });
         icmp_packet.fill_checksum();
     } else {
         let mut icmp_packet = Icmpv6Packet::new_unchecked(icmp_packet.into_inner());
-        icmp_packet.set_msg_type(Icmpv6Message::EchoRequest);
-        icmp_packet.fill_checksum(as_ipv6(&source_addr.ip()), as_ipv6(&dst_addr.ip()));
+        icmp_packet.set_msg_type(if is_echo_reply {
+            Icmpv6Message::EchoReply
+        } else {
+            Icmpv6Message::EchoRequest
+        });
+        icmp_packet.fill_checksum(as_ipv6(&src_addr.ip()), as_ipv6(&dst_addr.ip()));
     }
 }
 
@@ -163,14 +180,22 @@ pub struct IcmpPacket {
     pub dst_port: u16,
 }
 
-pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool) -> Option<IcmpPacket> {
+pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool, is_echo_reply: bool) -> Option<IcmpPacket> {
     let icmp_packet = Icmpv4Packet::new_checked(packet).ok()?;
 
     // we only work with icmp echo requests so if any other type of icmp
     // packet we receive we just ignore it
+    // TODO: maybe always check for both reply or request
     let correct_type = if is_ipv6 {
-        // icmpv6 echo request
-        Icmpv4Message::Unknown(0x80)
+        if is_echo_reply {
+            // icmpv6 echo reply
+            Icmpv4Message::Unknown(0x81)
+        } else {
+            // icmpv6 echo request
+            Icmpv4Message::Unknown(0x80)
+        }
+    } else if is_echo_reply {
+        Icmpv4Message::EchoReply
     } else {
         Icmpv4Message::EchoRequest
     };
@@ -180,8 +205,14 @@ pub fn parse_icmp_packet(packet: &[u8], is_ipv6: bool) -> Option<IcmpPacket> {
 
     // icmp is on layer 3 so it has no idea about ports
     // we use identifier and sequence number of icmp packet as ports
-    let dst_port = icmp_packet.echo_ident();
-    let src_port = icmp_packet.echo_seq_no();
+    let ident = icmp_packet.echo_ident();
+    let seq = icmp_packet.echo_seq_no();
+
+    let (src_port, dst_port) = if is_echo_reply {
+        (seq, ident)
+    } else {
+        (ident, seq)
+    };
     Some(IcmpPacket { src_port, dst_port })
 }
 
