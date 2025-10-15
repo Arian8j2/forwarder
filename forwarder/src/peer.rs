@@ -64,11 +64,11 @@ pub fn create_any_addr(is_ipv6: bool) -> SocketAddr {
 pub struct PeerManager {
     client_addr_to_peers: BTreeMap<SocketAddr, Arc<Peer>>,
     port_to_peers: BTreeMap<u16, Arc<Peer>>,
-    registry: Box<dyn Registry>,
+    registry: Option<Box<dyn Registry>>,
 }
 
 impl PeerManager {
-    pub fn new(registry: Box<dyn Registry>) -> Self {
+    pub fn new(registry: Option<Box<dyn Registry>>) -> Self {
         Self {
             client_addr_to_peers: BTreeMap::new(),
             port_to_peers: BTreeMap::new(),
@@ -78,7 +78,9 @@ impl PeerManager {
 
     pub fn add_peer(&mut self, mut new_peer: Peer) -> anyhow::Result<Arc<Peer>> {
         let client_addr = new_peer.client_addr;
-        self.registry.register(&mut new_peer.socket)?;
+        if let Some(registry) = &self.registry {
+            registry.register(&mut new_peer.socket)?;
+        }
         let peer = Arc::new(new_peer);
         self.client_addr_to_peers.insert(client_addr, peer.clone());
         let peer_port = peer.socket.local_addr()?.port();
@@ -106,7 +108,9 @@ impl PeerManager {
 
         let mut peer =
             Arc::try_unwrap(peer).map_err(|_| anyhow::anyhow!("can't unwrap Arc<peer>"))?;
-        self.registry.deregister(&mut peer.socket)?;
+        if let Some(registry) = &self.registry {
+            registry.deregister(&mut peer.socket)?;
+        }
         Ok(())
     }
 }

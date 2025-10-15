@@ -11,13 +11,18 @@ use std::sync::Arc;
 const EPOLL_EVENTS_CAPACITY: usize = 1024;
 
 #[derive(Debug)]
-pub struct UdpPoll(pub mio::Poll);
+pub struct UdpPoll(mio::Poll);
+
+impl UdpPoll {
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self(mio::Poll::new()?))
+    }
+}
 
 impl Poll for UdpPoll {
-    fn get_registry(&self) -> anyhow::Result<Box<dyn Registry>> {
+    fn get_registry(&self) -> anyhow::Result<Option<Box<dyn Registry>>> {
         let registry = self.0.registry().try_clone()?;
-        let registry = UdpRegistry(registry);
-        Ok(Box::new(registry))
+        Ok(Some(Box::new(UdpRegistry(registry))))
     }
 
     fn poll(

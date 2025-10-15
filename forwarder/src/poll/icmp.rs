@@ -1,9 +1,8 @@
-use super::{Poll, Registry};
+use super::Poll;
 use crate::{
     peer::{Peer, PeerManager},
-    socket::{
-        icmp::{cast_maybe_uninit, header_offset, parse_icmp_packet, IcmpSocket, ICMP_HEADER_LEN},
-        NonBlockingSocket,
+    socket::icmp::{
+        cast_maybe_uninit, header_offset, parse_icmp_packet, IcmpSocket, ICMP_HEADER_LEN,
     },
     MAX_PACKET_SIZE,
 };
@@ -16,8 +15,8 @@ pub struct IcmpPoll {
 }
 
 impl Poll for IcmpPoll {
-    fn get_registry(&self) -> anyhow::Result<Box<dyn Registry>> {
-        Ok(Box::new(IcmpRegistry))
+    fn get_registry(&self) -> anyhow::Result<Option<Box<dyn super::Registry>>> {
+        Ok(None)
     }
 
     fn poll(
@@ -45,17 +44,5 @@ impl Poll for IcmpPoll {
             let payload_offset = header_offset + ICMP_HEADER_LEN;
             on_peer_recv(peer, &mut buffer[payload_offset..size]);
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct IcmpRegistry;
-// icmp doesn't need a registry because we manage it's poll ourself
-impl Registry for IcmpRegistry {
-    fn register(&self, _socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
-        Ok(())
-    }
-    fn deregister(&self, _socket: &mut NonBlockingSocket) -> anyhow::Result<()> {
-        Ok(())
     }
 }

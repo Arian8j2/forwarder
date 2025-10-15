@@ -39,7 +39,7 @@ pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyh
         .with_context(|| "couldn't create poll")?;
     let registry = poll
         .get_registry()
-        .with_context(|| "couldn't get registry of poll")?;
+        .with_context(|| "couldn't create poll registry")?;
     let peer_manager = Arc::new(RwLock::new(PeerManager::new(registry)));
 
     spawn_peers_thread(poll, peer_manager.clone(), socket.clone(), &passphrase);
