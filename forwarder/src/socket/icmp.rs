@@ -110,10 +110,6 @@ impl NonBlockingIcmpSocket {
 }
 
 impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
-    fn recv(&self, _buffer: &mut [u8]) -> io::Result<usize> {
-        unreachable!("IcmpPoll doesn't call recv on socket, it has it's own master socket");
-    }
-
     fn send(&self, buffer: &mut [u8]) -> io::Result<usize> {
         let dst_addr = self
             .connected_addr

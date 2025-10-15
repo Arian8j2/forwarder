@@ -40,7 +40,8 @@ impl Poll for UdpPoll {
                 };
                 peer.set_used();
                 // each epoll event may result in multiple readiness events
-                while let Ok(size) = peer.socket.recv(buffer) {
+                let socket = peer.socket.as_udp().unwrap();
+                while let Ok(size) = socket.recv(buffer) {
                     on_peer_recv(peer, &mut buffer[..size]);
                 }
             }

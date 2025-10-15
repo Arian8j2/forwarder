@@ -37,6 +37,10 @@ impl NonBlockingUdpSocket {
     pub fn as_inner(&mut self) -> &mut mio::net::UdpSocket {
         &mut self.0
     }
+
+    pub fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.0.recv(buffer)
+    }
 }
 
 impl NonBlockingSocketTrait for NonBlockingUdpSocket {
@@ -46,10 +50,6 @@ impl NonBlockingSocketTrait for NonBlockingUdpSocket {
 
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
         self.0.connect(*addr)
-    }
-
-    fn recv(&self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.0.recv(buffer)
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {

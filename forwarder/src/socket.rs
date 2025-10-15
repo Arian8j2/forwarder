@@ -74,12 +74,18 @@ impl NonBlockingSocket {
             _ => None,
         }
     }
+
+    pub fn as_udp(&self) -> Option<&udp::NonBlockingUdpSocket> {
+        match self {
+            Self::Udp(inner) => Some(inner),
+            _ => None,
+        }
+    }
 }
 
 pub trait NonBlockingSocketTrait {
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()>;
     fn send(&self, buffer: &mut [u8]) -> io::Result<usize>;
-    fn recv(&self, buffer: &mut [u8]) -> io::Result<usize>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 impl_enum_deref! { NonBlockingSocket, dyn NonBlockingSocketTrait }
