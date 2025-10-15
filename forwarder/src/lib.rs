@@ -35,8 +35,8 @@ pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyh
     let socket = Arc::new(socket);
     log::info!("listen on '{listen_addr}'");
 
-    let poll = poll::new(remote_uri.protocol, remote_uri.addr.is_ipv6())
-        .with_context(|| "couldn't create poll")?;
+    let poll =
+        poll::new(remote_uri.protocol, remote_uri.addr).with_context(|| "couldn't create poll")?;
     let registry = poll
         .get_registry()
         .with_context(|| "couldn't create poll registry")?;

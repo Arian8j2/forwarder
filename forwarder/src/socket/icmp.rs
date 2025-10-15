@@ -4,7 +4,7 @@ use socket2::{Domain, Protocol, Type};
 use std::{
     io,
     mem::MaybeUninit,
-    net::{IpAddr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr, UdpSocket},
     slice,
 };
 
@@ -18,20 +18,27 @@ pub struct IcmpSocket {
     /// actual underlying icmp socket
     socket: socket2::Socket,
     /// udp socket that is kept alive for avoiding duplicate port
-    _udp_socket: std::net::UdpSocket,
-    /// address of udp socket same as `udp_socket.local_addr()`
-    udp_socket_addr: SocketAddr,
+    _udp_socket: UdpSocket,
+    addr: SocketAddr,
 }
 
 impl IcmpSocket {
     pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
-        let udp_socket = std::net::UdpSocket::bind(addr)?;
+        let udp_socket = UdpSocket::bind(addr)?;
         let udp_socket_addr = udp_socket.local_addr()?;
         let socket = IcmpSocket::inner_bind(*addr)?;
 
+        #[cfg(target_os = "linux")]
+        {
+            let filter = create_bfp_seq_filter(udp_socket_addr.is_ipv6(), udp_socket_addr.port());
+            if let Err(error) = socket.attach_filter(&filter) {
+                log::warn!("couldn't attach bpf filter: {error:?}");
+            }
+        }
+
         Ok(IcmpSocket {
             _udp_socket: udp_socket,
-            udp_socket_addr,
+            addr: udp_socket_addr,
             socket,
         })
     }
@@ -50,7 +57,7 @@ impl IcmpSocket {
 impl SocketTrait for IcmpSocket {
     fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize> {
         let buffer_with_header = unsafe { slice_sub(buffer, ICMP_HEADER_LEN) };
-        craft_icmp_packet(buffer_with_header, &self.udp_socket_addr, to, true);
+        craft_icmp_packet(buffer_with_header, &self.addr, to, true);
         let mut to_addr = *to;
         // in linux `send_to` on icmpv6 socket requires destination port to be zero
         to_addr.set_port(0);
@@ -58,22 +65,21 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn recv_from(&self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        let local_addr = self.udp_socket_addr;
+        let is_ipv6 = self.addr.is_ipv6();
+        let icmp_header_offset = header_offset(is_ipv6);
+        // aligning in a way that the icmp payload gets written into buffer
+        let payload_offset = icmp_header_offset + ICMP_HEADER_LEN;
+
         loop {
-            let icmp_header_offset = header_offset(local_addr.is_ipv6());
-
-            // aligning in a way that the icmp payload gets written into buffer
-            let payload_offset = icmp_header_offset + ICMP_HEADER_LEN;
             let buffer_with_header = unsafe { slice_sub(buffer, payload_offset) };
-
             let (size, from_addr) = self
                 .socket
                 .recv_from(cast_maybe_uninit(buffer_with_header))?;
             let icmp_packet = &mut buffer_with_header[icmp_header_offset..size];
-            let Some(packet) = parse_icmp_packet(icmp_packet, local_addr.is_ipv6(), false) else {
+            let Some(packet) = parse_icmp_packet(icmp_packet, is_ipv6, false) else {
                 continue;
             };
-            if packet.dst_port != local_addr.port() {
+            if packet.dst_port != self.addr.port() {
                 continue;
             }
             // doesn't panic because from_addr is either ipv6 or ipv4
@@ -85,13 +91,16 @@ impl SocketTrait for IcmpSocket {
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.udp_socket_addr)
+        Ok(self.addr)
     }
 }
 
 #[derive(Debug)]
 pub struct NonBlockingIcmpSocket {
-    icmp_socket: IcmpSocket,
+    socket: socket2::Socket,
+    /// udp socket that is kept alive for avoiding duplicate port
+    _udp_socket: UdpSocket,
+    addr: SocketAddr,
     // we need to have a copy of connected addr because we
     // need it to craft packet, in ipv6 we need addr + port and
     // in ipv4 we need port
@@ -100,11 +109,15 @@ pub struct NonBlockingIcmpSocket {
 
 impl NonBlockingIcmpSocket {
     pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
-        let icmp_socket = IcmpSocket::bind(addr)?;
-        icmp_socket.socket.set_nonblocking(true)?;
+        let udp_socket = UdpSocket::bind(addr)?;
+        let addr = udp_socket.local_addr()?;
+        let socket = IcmpSocket::inner_bind(addr)?;
+        socket.set_nonblocking(true)?;
         Ok(Self {
-            icmp_socket,
+            socket,
             connected_addr: None,
+            _udp_socket: udp_socket,
+            addr,
         })
     }
 }
@@ -116,13 +129,8 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
             .ok_or_else(|| Into::<io::Error>::into(io::ErrorKind::NotConnected))?;
         // it's safe because the main buffer has reserved bytes
         let buffer_with_header = unsafe { slice_sub(buffer, ICMP_HEADER_LEN) };
-        craft_icmp_packet(
-            buffer_with_header,
-            &self.icmp_socket.udp_socket_addr,
-            &dst_addr,
-            false,
-        );
-        self.icmp_socket.socket.send(buffer_with_header)
+        craft_icmp_packet(buffer_with_header, &self.addr, &dst_addr, false);
+        self.socket.send(buffer_with_header)
     }
 
     fn connect(&mut self, addr: &SocketAddr) -> io::Result<()> {
@@ -130,12 +138,12 @@ impl NonBlockingSocketTrait for NonBlockingIcmpSocket {
         let mut addr = *addr;
         // in linux icmpv6 socket requires destination port to be zero
         addr.set_port(0);
-        self.icmp_socket.socket.connect(&addr.into())?;
+        self.socket.connect(&addr.into())?;
         Ok(())
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.icmp_socket.local_addr()
+        Ok(self.addr)
     }
 }
 
@@ -240,4 +248,20 @@ fn as_ipv6(ip: &IpAddr) -> &Ipv6Addr {
         IpAddr::V6(ip) => ip,
         _ => panic!(),
     }
+}
+
+// bpf filter is really useful when having multiple forwarder instances
+// on same kernel, by default all icmp sockets receives all packets and then
+// we in user mode filter them but with this the packets get filtered on kernel
+#[cfg(target_os = "linux")]
+pub fn create_bfp_seq_filter(is_ipv6: bool, value: u16) -> [libc::sock_filter; 4] {
+    let icmp_header_offset = header_offset(is_ipv6);
+    let offset = icmp_header_offset + 6;
+    [
+        (0x28, 0, 0, offset as u32), // ldh [offset]
+        (0x15, 0, 1, value as u32),  // jne val, drop
+        (0x06, 0, 0, 0xffffffff),    // ret #-1
+        (0x06, 0, 0, 0000000000),    // drop: ret #0
+    ]
+    .map(|(code, jt, jf, k)| libc::sock_filter { code, jt, jf, k })
 }
