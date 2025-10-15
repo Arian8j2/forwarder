@@ -4,7 +4,7 @@ use socket2::{Domain, Protocol, Type};
 use std::{
     io,
     mem::MaybeUninit,
-    net::{SocketAddr, SocketAddrV6},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     slice,
 };
 
@@ -158,10 +158,7 @@ fn craft_icmp_packet(
     } else {
         let mut icmp_packet = Icmpv6Packet::new_unchecked(icmp_packet.into_inner());
         icmp_packet.set_msg_type(Icmpv6Message::EchoRequest);
-        icmp_packet.fill_checksum(
-            as_socket_addr_v6(*source_addr).ip(),
-            as_socket_addr_v6(*dst_addr).ip(),
-        );
+        icmp_packet.fill_checksum(as_ipv6(&source_addr.ip()), as_ipv6(&dst_addr.ip()));
     }
 }
 
@@ -211,9 +208,9 @@ pub fn cast_maybe_uninit(buffer: &mut [u8]) -> &mut [MaybeUninit<u8>] {
     unsafe { &mut *(buffer as *mut [u8] as *mut [MaybeUninit<u8>]) }
 }
 
-fn as_socket_addr_v6(socket_addr: SocketAddr) -> SocketAddrV6 {
-    match socket_addr {
-        SocketAddr::V6(v6_addr) => v6_addr,
-        SocketAddr::V4(_) => panic!("as_socket_addr_v6 called on ipv4 address"),
+fn as_ipv6(ip: &IpAddr) -> &Ipv6Addr {
+    match ip {
+        IpAddr::V6(ip) => ip,
+        _ => panic!(),
     }
 }
