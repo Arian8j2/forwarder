@@ -29,9 +29,9 @@ const SERVER_THREAD_COUNT: usize = 5;
 const BENCHMARK_DURATION: Duration = Duration::from_secs(10);
 
 fn main() -> anyhow::Result<()> {
-    let args = std::env::args();
+    let mut args = std::env::args();
     let protocol = if args.len() == 2 {
-        let protocol_name = args.last().unwrap();
+        let protocol_name = args.next_back().unwrap();
         Protocol::from_str(&protocol_name)
             .with_context(|| format!("cannot parse protocol name '{protocol_name}'"))?
     } else {
@@ -46,10 +46,10 @@ fn main() -> anyhow::Result<()> {
     let remote_uri = Uri::from_str("127.0.0.1:38703/udp")?;
 
     std::thread::spawn(move || {
-        forwarder::run(forwarder_uri, second_forwarder_uri, None).unwrap();
+        forwarder::run(forwarder_uri, second_forwarder_uri, None, false).unwrap();
     });
     std::thread::spawn(move || {
-        forwarder::run(second_forwarder_uri, remote_uri, None).unwrap();
+        forwarder::run(second_forwarder_uri, remote_uri, None, false).unwrap();
     });
 
     let remote_received_packet_count = Arc::new(AtomicU32::new(0));

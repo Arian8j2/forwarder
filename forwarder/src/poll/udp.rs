@@ -1,5 +1,6 @@
 use super::{Poll, Registry};
 use crate::{
+    create_socket_buffer,
     peer::{Peer, PeerManager},
     socket::{icmp::ICMP_RESERVED_BYTES_LEN, NonBlockingSocket, NonBlockingSocketTrait},
     MAX_PACKET_SIZE,
@@ -31,8 +32,7 @@ impl Poll for UdpPoll {
         on_peer_recv: Box<dyn Fn(&Peer, &mut [u8])>,
     ) -> anyhow::Result<()> {
         let mut events = Events::with_capacity(EPOLL_EVENTS_CAPACITY);
-        let buffer =
-            &mut [0u8; ICMP_RESERVED_BYTES_LEN + MAX_PACKET_SIZE][ICMP_RESERVED_BYTES_LEN..];
+        let buffer = create_socket_buffer!(MAX_PACKET_SIZE);
 
         loop {
             self.0.poll(&mut events, None)?;

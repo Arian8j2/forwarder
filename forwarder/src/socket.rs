@@ -1,4 +1,4 @@
-use crate::uri::Protocol;
+use crate::{socket::icmp::IcmpEchoType, uri::Protocol};
 use std::{
     io,
     net::SocketAddr,
@@ -36,10 +36,14 @@ pub enum Socket {
 
 impl Socket {
     /// creates a socket based on `protocol` and binds it to `addr` address
-    pub fn bind(protocol: Protocol, addr: &SocketAddr) -> io::Result<Self> {
+    pub fn bind(
+        protocol: Protocol,
+        addr: &SocketAddr,
+        icmp_type: IcmpEchoType,
+    ) -> io::Result<Self> {
         let socket = match protocol {
             Protocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
-            Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr)?),
+            Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr, icmp_type, true)?),
         };
         Ok(socket)
     }
@@ -60,10 +64,14 @@ pub enum NonBlockingSocket {
 
 impl NonBlockingSocket {
     /// creates a socket based on `protocol` and binds it to `addr` address
-    pub fn bind(protocol: Protocol, addr: &SocketAddr) -> io::Result<Self> {
+    pub fn bind(
+        protocol: Protocol,
+        addr: &SocketAddr,
+        icmp_echo_type: IcmpEchoType,
+    ) -> io::Result<Self> {
         let socket = match protocol {
             Protocol::Udp => Self::Udp(udp::NonBlockingUdpSocket::bind(addr)?),
-            Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr)?),
+            Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr, icmp_echo_type)?),
         };
         Ok(socket)
     }
@@ -90,5 +98,5 @@ pub trait NonBlockingSocketTrait {
 }
 impl_enum_deref! { NonBlockingSocket, dyn NonBlockingSocketTrait }
 
-pub(crate) mod icmp;
+pub mod icmp;
 pub(crate) mod udp;

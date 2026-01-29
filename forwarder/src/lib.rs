@@ -4,6 +4,7 @@ mod poll;
 pub mod socket;
 pub mod uri;
 
+use crate::socket::icmp::IcmpEchoType;
 use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use poll::Poll;
@@ -28,24 +29,53 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 /// # Error
 /// this function only returns early errors, such as being unable to listen on `listen_uri` or
 /// failing to create server `Poll` and ... it will panic on other late errors
-pub fn run(listen_uri: Uri, remote_uri: Uri, passphrase: Option<String>) -> anyhow::Result<()> {
+pub fn run(
+    listen_uri: Uri,
+    remote_uri: Uri,
+    passphrase: Option<String>,
+    reverse_icmp: bool,
+) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
-    let socket =
-        Socket::bind(listen_uri.protocol, listen_addr).with_context(|| "couldn't create server")?;
-    let socket = Arc::new(socket);
+    let icmp_type = if reverse_icmp {
+        IcmpEchoType::Reply
+    } else {
+        IcmpEchoType::Request
+    };
+    let socket = Socket::bind(listen_uri.protocol, listen_addr, icmp_type)
+        .with_context(|| "couldn't create server")?;
     log::info!("listen on '{listen_addr}'");
 
-    let poll =
-        poll::new(remote_uri.protocol, remote_uri.addr).with_context(|| "couldn't create poll")?;
+    let poll = poll::new(remote_uri.protocol, remote_uri.addr, icmp_type.opposite())
+        .with_context(|| "couldn't create poll")?;
     let registry = poll
         .get_registry()
         .with_context(|| "couldn't create poll registry")?;
     let peer_manager = Arc::new(RwLock::new(PeerManager::new(registry)));
-
-    spawn_peers_thread(poll, peer_manager.clone(), socket.clone(), &passphrase);
+    let socket = Arc::new(socket);
+    spawn_peers_thread(
+        poll,
+        peer_manager.clone(),
+        socket.clone(),
+        passphrase.clone(),
+    );
     spawn_cleanup_thread(peer_manager.clone());
-    run_server(socket, peer_manager, passphrase, remote_uri);
+    run_server(
+        socket,
+        peer_manager,
+        passphrase,
+        remote_uri,
+        icmp_type.opposite(),
+        listen_uri.addr.port(),
+    );
     Ok(())
+}
+
+// creating buffer became complicated when i wanted to achieve zero allocation so a helper makes it easy
+#[macro_export]
+macro_rules! create_socket_buffer {
+    ($size:expr) => {
+        &mut [0u8; ICMP_RESERVED_BYTES_LEN + $size][ICMP_RESERVED_BYTES_LEN..]
+    };
 }
 
 /// runs server in current thread
@@ -54,12 +84,18 @@ fn run_server(
     peer_manager: Arc<RwLock<PeerManager>>,
     passphrase: Option<String>,
     remote_uri: Uri,
+    peer_icmp_type: IcmpEchoType,
+    listening_port: u16,
 ) {
-    let buffer = &mut [0u8; ICMP_RESERVED_BYTES_LEN + MAX_PACKET_SIZE][ICMP_RESERVED_BYTES_LEN..];
+    let buffer = create_socket_buffer!(MAX_PACKET_SIZE);
     loop {
         let Ok((size, from_addr)) = socket.recv_from(buffer) else {
             continue;
         };
+        if from_addr.port() == listening_port {
+            // reverse healthcheck
+            continue;
+        }
         if let Some(ref passphrase) = passphrase {
             encryption::xor_encrypt(&mut buffer[..size], passphrase)
         }
@@ -75,7 +111,7 @@ fn run_server(
             None => {
                 log::info!("new client '{from_addr}'");
                 let peers = RwLockUpgradableReadGuard::upgrade(peers);
-                let peer = match add_new_peer(&remote_uri, from_addr, peers) {
+                let peer = match add_new_peer(&remote_uri, from_addr, peers, peer_icmp_type) {
                     Ok(peer) => peer,
                     Err(error) => {
                         log::error!("couldn't add new peer: {error:?}");
@@ -95,8 +131,9 @@ fn add_new_peer(
     remote_uri: &Uri,
     from_addr: SocketAddr,
     mut peers: RwLockWriteGuard<PeerManager>,
+    icmp_echo_type: IcmpEchoType,
 ) -> anyhow::Result<Arc<Peer>> {
-    let new_peer = Peer::new(remote_uri, from_addr)?;
+    let new_peer = Peer::new(remote_uri, from_addr, icmp_echo_type)?;
     let peer = peers.add_peer(new_peer)?;
     Ok(peer)
 }
@@ -106,9 +143,8 @@ fn spawn_peers_thread(
     poll: Box<dyn Poll>,
     peers: Arc<RwLock<PeerManager>>,
     server_socket: Arc<Socket>,
-    passphrase: &Option<String>,
+    passphrase: Option<String>,
 ) {
-    let passphrase = passphrase.clone();
     std::thread::spawn(|| {
         if let Err(error) = peers_thread(poll, peers, server_socket, passphrase) {
             log::error!("peers thread exited with error: {error:?}");

@@ -1,6 +1,6 @@
 use crate::{
     peer::{Peer, PeerManager},
-    socket::NonBlockingSocket,
+    socket::{icmp::IcmpEchoType, NonBlockingSocket},
     uri::Protocol,
 };
 use icmp::IcmpPoll;
@@ -34,9 +34,16 @@ pub trait Registry: Send + Sync {
 mod icmp;
 mod udp;
 
-pub fn new(protocol: Protocol, remote_addr: SocketAddr) -> anyhow::Result<Box<dyn Poll>> {
+pub fn new(
+    protocol: Protocol,
+    remote_addr: SocketAddr,
+    icmp_echo_type: IcmpEchoType,
+) -> anyhow::Result<Box<dyn Poll>> {
     Ok(match protocol {
         Protocol::Udp => Box::new(UdpPoll::new()?),
-        Protocol::Icmp => Box::new(IcmpPoll { remote_addr }),
+        Protocol::Icmp => Box::new(IcmpPoll {
+            remote_addr,
+            echo_type: icmp_echo_type,
+        }),
     })
 }
