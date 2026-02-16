@@ -3,12 +3,12 @@ mod peer;
 mod poll;
 pub mod socket;
 pub mod uri;
+pub(crate) mod utils;
 
 use crate::socket::icmp::IcmpEchoType;
 use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use poll::Poll;
-use socket::icmp::ICMP_RESERVED_BYTES_LEN;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use {
     peer::{Peer, PeerManager},
@@ -73,9 +73,10 @@ pub fn run(
 // creating buffer became complicated when i wanted to achieve zero allocation so a helper makes it easy
 #[macro_export]
 macro_rules! create_socket_buffer {
-    ($size:expr) => {
-        &mut [0u8; ICMP_RESERVED_BYTES_LEN + $size][ICMP_RESERVED_BYTES_LEN..]
-    };
+    ($size:expr) => {{
+        const RESERVED_BYTES: usize = 100;
+        &mut [0u8; RESERVED_BYTES + $size][RESERVED_BYTES..]
+    }};
 }
 
 /// runs server in current thread

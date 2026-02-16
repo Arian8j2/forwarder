@@ -103,8 +103,8 @@ fn test_udp_double_forwarder_back_and_forth() {
 }
 
 #[test]
-#[ignore = "icmp sockets requires special access, please run this test with ./test_icmp.sh"]
-fn test_icmpv4_double_forwarder_back_and_forth() {
+#[ignore = "requires raw socket, please run with ./test_raw.sh"]
+fn test_raw_icmpv4_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38809/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("127.0.0.1:38810/icmp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38811/udp").unwrap();
@@ -120,11 +120,20 @@ fn test_udp_ipv6_double_forwarder_back_and_forth() {
 }
 
 #[test]
-#[ignore = "icmp sockets requires special access, please run this test with ./test_icmp.sh"]
-fn test_icmpv6_double_forwarder_back_and_forth() {
+#[ignore = "requires raw socket, please run with ./test_raw.sh"]
+fn test_raw_icmpv6_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38815/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("[::1]:38816/icmp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38817/udp").unwrap();
+    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+}
+
+#[test]
+#[ignore = "requires raw socket, please run with ./test_raw.sh"]
+fn test_raw_pushack_ipv4() {
+    let forwarder_uri = Uri::from_str("127.0.0.1:38818/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("127.0.0.1:38819/pushack").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38820/udp").unwrap();
     spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
 }
 

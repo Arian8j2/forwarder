@@ -71,6 +71,7 @@ impl TryFrom<&str> for Uri {
 pub enum Protocol {
     Udp,
     Icmp,
+    Pushack,
 }
 
 impl FromStr for Protocol {
@@ -79,8 +80,11 @@ impl FromStr for Protocol {
         match s.to_lowercase().as_str() {
             "udp" => Ok(Protocol::Udp),
             "icmp" => Ok(Protocol::Icmp),
+            "pushack" => Ok(Protocol::Pushack),
             _ => {
-                bail!("invalid socket protocol name, valid socket protocols are: 'udp' and 'icmp'")
+                bail!(
+                    "invalid socket protocol name, valid socket protocols are: udp, icmp, pushack"
+                )
             }
         }
     }
@@ -91,6 +95,7 @@ impl Display for Protocol {
         let str = match self {
             Protocol::Icmp => "icmp".to_owned(),
             Protocol::Udp => "udp".to_owned(),
+            Protocol::Pushack => "pushack".to_owned(),
         };
         write!(f, "{str}")
     }

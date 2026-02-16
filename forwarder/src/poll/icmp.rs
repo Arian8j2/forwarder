@@ -1,10 +1,8 @@
 use super::Poll;
 use crate::{
     peer::{Peer, PeerManager},
-    socket::icmp::{
-        cast_maybe_uninit, header_offset, parse_icmp_packet, IcmpEchoType, IcmpSocket,
-        ICMP_HEADER_LEN,
-    },
+    socket::icmp::{header_offset, parse_icmp_packet, IcmpEchoType, IcmpSocket, ICMP_HEADER_LEN},
+    utils::cast_maybe_uninit,
     MAX_PACKET_SIZE,
 };
 use parking_lot::RwLock;

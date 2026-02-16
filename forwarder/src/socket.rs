@@ -13,6 +13,7 @@ macro_rules! impl_enum_deref {
                 match self {
                     Self::Udp(inner) => inner,
                     Self::Icmp(inner) => inner,
+                    Self::Pushack(inner) => inner,
                 }
             }
         }
@@ -21,6 +22,7 @@ macro_rules! impl_enum_deref {
                 match self {
                     Self::Udp(inner) => inner,
                     Self::Icmp(inner) => inner,
+                    Self::Pushack(inner) => inner,
                 }
             }
         }
@@ -32,6 +34,7 @@ macro_rules! impl_enum_deref {
 pub enum Socket {
     Udp(udp::UdpSocket),
     Icmp(icmp::IcmpSocket),
+    Pushack(pushack::PushackSocket),
 }
 
 impl Socket {
@@ -44,6 +47,7 @@ impl Socket {
         let socket = match protocol {
             Protocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
             Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr, icmp_type, true)?),
+            Protocol::Pushack => Socket::Pushack(pushack::PushackSocket::bind(addr)?),
         };
         Ok(socket)
     }
@@ -60,6 +64,7 @@ impl_enum_deref! { Socket, dyn SocketTrait }
 pub enum NonBlockingSocket {
     Udp(udp::NonBlockingUdpSocket),
     Icmp(icmp::NonBlockingIcmpSocket),
+    Pushack(pushack::NonBlockingPushackSocket),
 }
 
 impl NonBlockingSocket {
@@ -72,6 +77,7 @@ impl NonBlockingSocket {
         let socket = match protocol {
             Protocol::Udp => Self::Udp(udp::NonBlockingUdpSocket::bind(addr)?),
             Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr, icmp_echo_type)?),
+            Protocol::Pushack => Self::Pushack(pushack::NonBlockingPushackSocket::bind(addr)?),
         };
         Ok(socket)
     }
@@ -83,9 +89,23 @@ impl NonBlockingSocket {
         }
     }
 
+    pub fn as_mut_pushack(&mut self) -> Option<&mut pushack::NonBlockingPushackSocket> {
+        match self {
+            Self::Pushack(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
     pub fn as_udp(&self) -> Option<&udp::NonBlockingUdpSocket> {
         match self {
             Self::Udp(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
+    pub fn as_pushack(&self) -> Option<&pushack::NonBlockingPushackSocket> {
+        match self {
+            Self::Pushack(inner) => Some(inner),
             _ => None,
         }
     }
@@ -99,4 +119,5 @@ pub trait NonBlockingSocketTrait {
 impl_enum_deref! { NonBlockingSocket, dyn NonBlockingSocketTrait }
 
 pub mod icmp;
+pub(crate) mod pushack;
 pub(crate) mod udp;

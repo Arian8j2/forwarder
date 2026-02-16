@@ -1,5 +1,6 @@
 use crate::{
     peer::{Peer, PeerManager},
+    poll::pushack::PushackPoll,
     socket::{icmp::IcmpEchoType, NonBlockingSocket},
     uri::Protocol,
 };
@@ -32,6 +33,7 @@ pub trait Registry: Send + Sync {
 }
 
 mod icmp;
+mod pushack;
 mod udp;
 
 pub fn new(
@@ -45,5 +47,6 @@ pub fn new(
             remote_addr,
             echo_type: icmp_echo_type,
         }),
+        Protocol::Pushack => Box::new(PushackPoll { remote_addr }),
     })
 }

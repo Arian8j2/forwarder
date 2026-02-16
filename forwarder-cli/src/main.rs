@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use clap::Parser;
 use forwarder::uri::{Protocol, Uri};
 use log::{info, LevelFilter};
@@ -8,6 +8,7 @@ use std::{
 };
 
 mod health_check;
+mod pushack_firewall;
 
 /// Lightweight UDP forwarder and UDP over ICMP
 #[derive(Parser)]
@@ -37,7 +38,7 @@ pub struct Args {
     #[arg(long, hide = true)]
     pub child: bool,
 
-    /// Amount of seconds to wait when handshake failed
+    /// Amount of seconds to wait when icmp handshake failed in reverse mode
     #[arg(long, default_value = "2")]
     pub handshake_delay: u32,
 }
@@ -46,6 +47,23 @@ fn main() -> anyhow::Result<()> {
     let cli = Args::parse();
     setup_logger().with_context(|| "couldn't setup logger")?;
     log_version();
+
+    let iptables_guard = pushack_firewall::drop_rst(&cli)
+        .with_context(|| "couldn't add firewall rule to drop rst")?;
+    // TODO: this will not get called on panics of forwarder and ...
+    // maybe launch forwarder on new process and disable panic abort and remove panics in forwarder lib
+    ctrlc::set_handler(move || {
+        drop(iptables_guard.clone());
+        std::process::exit(1);
+    })
+    .unwrap();
+
+    if cli.listen_uri.addr.is_ipv6() && cli.listen_uri.protocol == Protocol::Pushack
+        || cli.remote_uri.addr.is_ipv6() && cli.remote_uri.protocol == Protocol::Pushack
+    {
+        bail!("pushack protocol does not support ipv6 yet");
+    }
+
     if cli.child || !cli.reverse {
         forwarder::run(cli.listen_uri, cli.remote_uri, cli.passphrase, cli.reverse)?;
     } else {

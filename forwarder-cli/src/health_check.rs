@@ -2,7 +2,7 @@ use super::Args;
 use forwarder::{
     create_socket_buffer,
     socket::{
-        icmp::{create_bfp_filter, IcmpEchoType, IcmpSocket, ICMP_RESERVED_BYTES_LEN},
+        icmp::{create_bfp_filter, IcmpEchoType, IcmpSocket},
         SocketTrait,
     },
 };

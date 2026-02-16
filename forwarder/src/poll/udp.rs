@@ -2,7 +2,7 @@ use super::{Poll, Registry};
 use crate::{
     create_socket_buffer,
     peer::{Peer, PeerManager},
-    socket::{icmp::ICMP_RESERVED_BYTES_LEN, NonBlockingSocket, NonBlockingSocketTrait},
+    socket::{NonBlockingSocket, NonBlockingSocketTrait},
     MAX_PACKET_SIZE,
 };
 use mio::{Events, Interest, Token};

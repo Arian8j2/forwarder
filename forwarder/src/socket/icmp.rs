@@ -1,11 +1,10 @@
 use super::{NonBlockingSocketTrait, SocketTrait};
+use crate::utils::{cast_maybe_uninit, slice_sub};
 use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv6Message, Icmpv6Packet, IPV4_HEADER_LEN};
 use socket2::{Domain, Protocol, Type};
 use std::{
     io,
-    mem::MaybeUninit,
     net::{IpAddr, Ipv6Addr, SocketAddr, UdpSocket},
-    slice,
     time::{Duration, Instant},
 };
 
@@ -290,15 +289,6 @@ pub fn header_offset(is_ipv6: bool) -> usize {
     } else {
         IPV4_HEADER_LEN
     }
-}
-
-unsafe fn slice_sub(buffer: &mut [u8], count: usize) -> &mut [u8] {
-    slice::from_raw_parts_mut(buffer.as_mut_ptr().sub(count), count + buffer.len())
-}
-
-pub fn cast_maybe_uninit(buffer: &mut [u8]) -> &mut [MaybeUninit<u8>] {
-    // fucking rust with its bullshits
-    unsafe { &mut *(buffer as *mut [u8] as *mut [MaybeUninit<u8>]) }
 }
 
 fn as_ipv6(ip: &IpAddr) -> &Ipv6Addr {
