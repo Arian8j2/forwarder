@@ -162,6 +162,7 @@ fn crate_pushack_packet(
     tcp_packet.set_dst_port(dst_addr.port());
     tcp_packet.set_seq_number(TcpSeqNumber(seq));
     tcp_packet.set_ack_number(TcpSeqNumber(ack));
+    tcp_packet.clear_flags();
     tcp_packet.set_psh(true);
     tcp_packet.set_ack(true);
     tcp_packet.set_window_len(u16::MAX);
