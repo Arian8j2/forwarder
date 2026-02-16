@@ -8,6 +8,7 @@ COPY . .
 RUN cargo build --release --package forwarder-cli --target x86_64-unknown-linux-musl
 
 FROM alpine:3.22 as runtime
+RUN apk add --no-cache bash iptables
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/forwarder-cli forwarder
 
 ENV LISTEN_ADDR=0.0.0.0:1001 \
