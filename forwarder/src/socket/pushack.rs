@@ -17,6 +17,8 @@ pub struct PushackSocket {
     /// udp socket that is kept alive for avoiding duplicate port
     _udp_socket: UdpSocket,
     addr: SocketAddr,
+    seq: i32,
+    ack: i32,
 }
 
 impl PushackSocket {
@@ -36,6 +38,8 @@ impl PushackSocket {
             _udp_socket,
             addr,
             socket,
+            seq: rand::random(),
+            ack: rand::random(),
         })
     }
 
@@ -53,7 +57,7 @@ impl PushackSocket {
 impl SocketTrait for PushackSocket {
     fn send_to(&self, buffer: &mut [u8], to: &SocketAddr) -> io::Result<usize> {
         let buffer_with_header = unsafe { slice_sub(buffer, TCP_HEADER_LEN) };
-        crate_pushack_packet(buffer_with_header, &self.addr, to);
+        crate_pushack_packet(buffer_with_header, &self.addr, to, self.seq, self.ack);
         self.socket.send_to(buffer_with_header, &(*to).into())
     }
 
@@ -93,6 +97,8 @@ pub struct NonBlockingPushackSocket {
     // need it to craft packet, in ipv6 we need addr + port and
     // in ipv4 we need port
     connected_addr: Option<SocketAddr>,
+    seq: i32,
+    ack: i32,
 }
 
 impl NonBlockingPushackSocket {
@@ -106,6 +112,8 @@ impl NonBlockingPushackSocket {
             connected_addr: None,
             _udp_socket: udp_socket,
             addr,
+            seq: rand::random(),
+            ack: rand::random(),
         })
     }
 
@@ -121,7 +129,13 @@ impl NonBlockingSocketTrait for NonBlockingPushackSocket {
             .ok_or_else(|| Into::<io::Error>::into(io::ErrorKind::NotConnected))?;
         // it's safe because the main buffer has reserved bytes
         let buffer_with_header = unsafe { slice_sub(buffer, TCP_HEADER_LEN) };
-        crate_pushack_packet(buffer_with_header, &self.addr, &dst_addr);
+        crate_pushack_packet(
+            buffer_with_header,
+            &self.addr,
+            &dst_addr,
+            self.seq,
+            self.ack,
+        );
         self.socket.send(buffer_with_header)
     }
 
@@ -136,12 +150,18 @@ impl NonBlockingSocketTrait for NonBlockingPushackSocket {
     }
 }
 
-fn crate_pushack_packet(buffer: &mut [u8], src_addr: &SocketAddr, dst_addr: &SocketAddr) {
+fn crate_pushack_packet(
+    buffer: &mut [u8],
+    src_addr: &SocketAddr,
+    dst_addr: &SocketAddr,
+    seq: i32,
+    ack: i32,
+) {
     let mut tcp_packet = TcpPacket::new_unchecked(buffer);
     tcp_packet.set_src_port(src_addr.port());
     tcp_packet.set_dst_port(dst_addr.port());
-    tcp_packet.set_seq_number(TcpSeqNumber(0));
-    tcp_packet.set_ack_number(TcpSeqNumber(0));
+    tcp_packet.set_seq_number(TcpSeqNumber(seq));
+    tcp_packet.set_ack_number(TcpSeqNumber(ack));
     tcp_packet.set_psh(true);
     tcp_packet.set_ack(true);
     tcp_packet.set_window_len(u16::MAX);
