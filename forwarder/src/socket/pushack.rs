@@ -23,8 +23,15 @@ impl PushackSocket {
     pub fn bind(addr: &SocketAddr) -> io::Result<Self> {
         let _udp_socket = UdpSocket::bind(addr)?;
         let addr = _udp_socket.local_addr()?;
-
         let socket = Self::inner_bind(addr)?;
+
+        #[cfg(target_os = "linux")]
+        if let Err(error) =
+            socket.attach_filter(&create_bfp_filter(TcpBpfFilter::DstPort(addr.port())))
+        {
+            log::warn!("couldn't attach bpf filter: {error:?}");
+        }
+
         Ok(Self {
             _udp_socket,
             addr,
@@ -33,11 +40,7 @@ impl PushackSocket {
     }
 
     pub fn inner_bind(addr: SocketAddr) -> io::Result<socket2::Socket> {
-        let socket = if addr.is_ipv4() {
-            socket2::Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::TCP))
-        } else {
-            socket2::Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::TCP))
-        }?;
+        let socket = socket2::Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::TCP))?;
         socket.bind(&addr.into())?;
         Ok(socket)
     }
@@ -165,4 +168,27 @@ pub fn parse_pushack_packet(packet: &[u8]) -> Option<TcpPacketPort> {
         dst_port: tcp_packet.dst_port(),
     };
     Some(ports)
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+pub enum TcpBpfFilter {
+    SrcPort(u16),
+    DstPort(u16),
+}
+
+#[cfg(target_os = "linux")]
+pub fn create_bfp_filter(filter: TcpBpfFilter) -> [libc::sock_filter; 4] {
+    let (filter_offset, value) = match filter {
+        TcpBpfFilter::SrcPort(port) => (0, port),
+        TcpBpfFilter::DstPort(port) => (2, port),
+    };
+    let total_offset = IPV4_HEADER_LEN + filter_offset;
+    [
+        (0x28, 0, 0, total_offset as u32), // ldh [offset]
+        (0x15, 0, 1, value as u32),        // jne val, drop
+        (0x06, 0, 0, 0xffffffff),          // ret #-1
+        (0x06, 0, 0, 0000000000),          // drop: ret #0
+    ]
+    .map(|(code, jt, jf, k)| libc::sock_filter { code, jt, jf, k })
 }
