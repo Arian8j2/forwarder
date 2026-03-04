@@ -1,7 +1,7 @@
 use crate::{
     peer::{Peer, PeerManager},
     poll::pushack::PushackPoll,
-    socket::{icmp::IcmpEchoType, NonBlockingSocket},
+    socket::{icmp::IcmpConfig, NonBlockingSocket},
     uri::Protocol,
 };
 use icmp::IcmpPoll;
@@ -39,13 +39,13 @@ mod udp;
 pub fn new(
     protocol: Protocol,
     remote_addr: SocketAddr,
-    icmp_echo_type: IcmpEchoType,
+    icmp_config: IcmpConfig,
 ) -> anyhow::Result<Box<dyn Poll>> {
     Ok(match protocol {
         Protocol::Udp => Box::new(UdpPoll::new()?),
         Protocol::Icmp => Box::new(IcmpPoll {
             remote_addr,
-            echo_type: icmp_echo_type,
+            config: icmp_config,
         }),
         Protocol::Pushack => Box::new(PushackPoll { remote_addr }),
     })

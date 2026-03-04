@@ -1,7 +1,7 @@
 use super::Poll;
 use crate::{
     peer::{Peer, PeerManager},
-    socket::icmp::{header_offset, parse_icmp_packet, IcmpEchoType, IcmpSocket, ICMP_HEADER_LEN},
+    socket::icmp::{header_offset, parse_icmp_packet, IcmpConfig, IcmpSocket, ICMP_HEADER_LEN},
     utils::cast_maybe_uninit,
     MAX_PACKET_SIZE,
 };
@@ -11,7 +11,7 @@ use std::{net::SocketAddr, sync::Arc};
 #[derive(Debug)]
 pub struct IcmpPoll {
     pub remote_addr: SocketAddr,
-    pub echo_type: IcmpEchoType,
+    pub config: IcmpConfig,
 }
 
 impl Poll for IcmpPoll {
@@ -26,13 +26,14 @@ impl Poll for IcmpPoll {
     ) -> anyhow::Result<()> {
         let is_ipv6 = self.remote_addr.is_ipv6();
         let listen_addr = crate::peer::create_any_addr(is_ipv6);
-        let socket: socket2::Socket = IcmpSocket::inner_bind(listen_addr)?;
+        let socket: socket2::Socket =
+            IcmpSocket::inner_bind(listen_addr, self.config.force_icmpv6)?;
 
         #[cfg(target_os = "linux")]
         {
             let filter = crate::socket::icmp::create_bfp_filter(
                 is_ipv6,
-                self.echo_type,
+                self.config.echo_type,
                 self.remote_addr.port(),
             );
             if let Err(error) = socket.attach_filter(&filter) {
@@ -48,7 +49,7 @@ impl Poll for IcmpPoll {
                 continue;
             };
             let Some(icmp_packet) =
-                parse_icmp_packet(&buffer[header_offset..size], is_ipv6, self.echo_type)
+                parse_icmp_packet(&buffer[header_offset..size], is_ipv6, self.config.echo_type)
             else {
                 continue;
             };

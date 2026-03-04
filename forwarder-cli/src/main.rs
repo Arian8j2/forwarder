@@ -28,6 +28,10 @@ pub struct Args {
     #[arg(short = 'R', long)]
     pub reverse: bool,
 
+    /// When having one icmp uri this will force using icmpv6 protocol on ipv4
+    #[arg(short = '6', long)]
+    pub force_icmpv6: bool,
+
     /// Ip of server you wanna connect to and start the icmp connection in reverse mode
     #[arg(long)]
     pub reverse_addr: Option<IpAddr>,
@@ -49,7 +53,11 @@ fn main() -> anyhow::Result<()> {
     pushack::prepare_firewall(&cli)?;
 
     if cli.child || !cli.reverse {
-        forwarder::run(cli.listen_uri, cli.remote_uri, cli.passphrase, cli.reverse)?;
+        let args = forwarder::Args {
+            reverse_icmp: cli.reverse,
+            force_icmpv6: cli.force_icmpv6,
+        };
+        forwarder::run(cli.listen_uri, cli.remote_uri, cli.passphrase, args)?;
     } else {
         icmp_rev::run_reverse(cli)?;
     }

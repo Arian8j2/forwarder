@@ -1,4 +1,4 @@
-use crate::{socket::icmp::IcmpEchoType, uri::Protocol};
+use crate::{socket::icmp::IcmpConfig, uri::Protocol};
 use std::{
     io,
     net::SocketAddr,
@@ -42,11 +42,11 @@ impl Socket {
     pub fn bind(
         protocol: Protocol,
         addr: &SocketAddr,
-        icmp_type: IcmpEchoType,
+        icmp_config: IcmpConfig,
     ) -> io::Result<Self> {
         let socket = match protocol {
             Protocol::Udp => Socket::Udp(udp::UdpSocket::bind(addr)?),
-            Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr, icmp_type, true)?),
+            Protocol::Icmp => Socket::Icmp(icmp::IcmpSocket::bind(addr, icmp_config, true)?),
             Protocol::Pushack => Socket::Pushack(pushack::PushackSocket::bind(addr)?),
         };
         Ok(socket)
@@ -72,11 +72,11 @@ impl NonBlockingSocket {
     pub fn bind(
         protocol: Protocol,
         addr: &SocketAddr,
-        icmp_echo_type: IcmpEchoType,
+        icmp_config: IcmpConfig,
     ) -> io::Result<Self> {
         let socket = match protocol {
             Protocol::Udp => Self::Udp(udp::NonBlockingUdpSocket::bind(addr)?),
-            Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr, icmp_echo_type)?),
+            Protocol::Icmp => Self::Icmp(icmp::NonBlockingIcmpSocket::bind(addr, icmp_config)?),
             Protocol::Pushack => Self::Pushack(pushack::NonBlockingPushackSocket::bind(addr)?),
         };
         Ok(socket)

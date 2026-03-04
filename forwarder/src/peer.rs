@@ -1,5 +1,5 @@
 use crate::poll::Registry;
-use crate::socket::icmp::IcmpEchoType;
+use crate::socket::icmp::IcmpConfig;
 use crate::socket::NonBlockingSocket;
 use crate::uri::Uri;
 use std::fmt::Debug;
@@ -22,10 +22,10 @@ impl Peer {
     pub fn new(
         remote_uri: &Uri,
         client_addr: SocketAddr,
-        icmp_echo_type: IcmpEchoType,
+        icmp_config: IcmpConfig,
     ) -> anyhow::Result<Self> {
         let addr = create_any_addr(remote_uri.addr.is_ipv6());
-        let mut socket = NonBlockingSocket::bind(remote_uri.protocol, &addr, icmp_echo_type)?;
+        let mut socket = NonBlockingSocket::bind(remote_uri.protocol, &addr, icmp_config)?;
         socket.connect(&remote_uri.addr)?;
         let peer = Self {
             socket,

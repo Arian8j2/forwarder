@@ -26,6 +26,12 @@ pub struct IcmpSocket {
     read_timeout: Option<Duration>,
 }
 
+#[derive(Debug)]
+pub struct IcmpConfig {
+    pub echo_type: IcmpEchoType,
+    pub force_icmpv6: bool,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum IcmpEchoType {
@@ -43,11 +49,7 @@ impl IcmpEchoType {
 }
 
 impl IcmpSocket {
-    pub fn bind(
-        addr: &SocketAddr,
-        icmp_echo_type: IcmpEchoType,
-        check_port: bool,
-    ) -> io::Result<Self> {
+    pub fn bind(addr: &SocketAddr, config: IcmpConfig, check_port: bool) -> io::Result<Self> {
         let (udp_socket, udp_socket_addr) = if check_port {
             let udp_socket = UdpSocket::bind(addr)?;
             let addr = udp_socket.local_addr()?;
@@ -55,7 +57,7 @@ impl IcmpSocket {
         } else {
             (None, *addr)
         };
-        let socket = IcmpSocket::inner_bind(*addr)?;
+        let socket = IcmpSocket::inner_bind(*addr, config.force_icmpv6)?;
 
         // TODO: maybe attach a bpf filter here
 
@@ -63,14 +65,19 @@ impl IcmpSocket {
             _udp_socket: udp_socket,
             addr: udp_socket_addr,
             socket,
-            icmp_echo_type,
+            icmp_echo_type: config.echo_type,
             read_timeout: None,
         })
     }
 
-    pub fn inner_bind(addr: SocketAddr) -> io::Result<socket2::Socket> {
+    pub fn inner_bind(addr: SocketAddr, force_icmpv6: bool) -> io::Result<socket2::Socket> {
         let socket = if addr.is_ipv4() {
-            socket2::Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))
+            let protocol = if force_icmpv6 {
+                Protocol::ICMPV6
+            } else {
+                Protocol::ICMPV4
+            };
+            socket2::Socket::new(Domain::IPV4, Type::RAW, Some(protocol))
         } else {
             socket2::Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::ICMPV6))
         }?;
@@ -153,17 +160,17 @@ pub struct NonBlockingIcmpSocket {
 }
 
 impl NonBlockingIcmpSocket {
-    pub fn bind(addr: &SocketAddr, echo_type: IcmpEchoType) -> io::Result<Self> {
+    pub fn bind(addr: &SocketAddr, config: IcmpConfig) -> io::Result<Self> {
         let udp_socket = UdpSocket::bind(addr)?;
         let addr = udp_socket.local_addr()?;
-        let socket = IcmpSocket::inner_bind(addr)?;
+        let socket = IcmpSocket::inner_bind(addr, config.force_icmpv6)?;
         socket.set_nonblocking(true)?;
         Ok(Self {
             socket,
             connected_addr: None,
             _udp_socket: udp_socket,
             addr,
-            echo_type,
+            echo_type: config.echo_type,
         })
     }
 }

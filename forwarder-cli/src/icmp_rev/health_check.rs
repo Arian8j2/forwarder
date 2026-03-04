@@ -2,7 +2,7 @@ use crate::Args;
 use forwarder::{
     create_socket_buffer,
     socket::{
-        icmp::{create_bfp_filter, IcmpEchoType, IcmpSocket},
+        icmp::{create_bfp_filter, IcmpConfig, IcmpEchoType, IcmpSocket},
         SocketTrait,
     },
 };
@@ -30,7 +30,11 @@ const PACKET_COUNTER_LEN: usize = 100;
 
 pub fn initiate_server(cli: &Args) -> anyhow::Result<Arc<AtomicBool>> {
     let listen_addr = SocketAddr::new(cli.listen_uri.addr.ip(), cli.remote_uri.addr.port());
-    let mut socket = IcmpSocket::bind(&listen_addr, IcmpEchoType::Request, false)?;
+    let config = IcmpConfig {
+        echo_type: IcmpEchoType::Request,
+        force_icmpv6: cli.force_icmpv6,
+    };
+    let mut socket = IcmpSocket::bind(&listen_addr, config, false)?;
     socket.set_read_timeout(Some(HELLO_TIMEOUT))?;
 
     log::info!("waiting for client handshake...");
@@ -101,7 +105,11 @@ fn spawn_server_health_check(
 }
 
 pub fn initiate_client(cli: &Args, reverse_addr: IpAddr) -> anyhow::Result<Arc<AtomicBool>> {
-    let mut socket = IcmpSocket::bind(&cli.listen_uri.addr, IcmpEchoType::Reply, false)?;
+    let config = IcmpConfig {
+        echo_type: IcmpEchoType::Reply,
+        force_icmpv6: cli.force_icmpv6,
+    };
+    let mut socket = IcmpSocket::bind(&cli.listen_uri.addr, config, false)?;
     socket.set_read_timeout(Some(HELLO_TIMEOUT))?;
     socket.inner_socket().attach_filter(&create_bfp_filter(
         false,

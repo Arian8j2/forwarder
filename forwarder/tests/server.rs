@@ -1,4 +1,4 @@
-use forwarder::uri::Uri;
+use forwarder::{uri::Uri, Args};
 use std::{
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
@@ -12,7 +12,7 @@ fn test_udp_forwarder() {
     let remote_uri = Uri::from_str("127.0.0.1:38802/udp").unwrap();
 
     std::thread::spawn(move || {
-        forwarder::run(forwarder_uri, remote_uri, None, false).unwrap();
+        forwarder::run(forwarder_uri, remote_uri, None, Args::default()).unwrap();
     });
 
     let remote = UdpSocket::bind(remote_uri.addr).unwrap();
@@ -52,7 +52,7 @@ fn test_udp_double_forwarder() {
             forwarder_uri,
             second_forwarder_uri,
             Some(String::from("some_password")),
-            false,
+            Args::default(),
         )
         .unwrap();
     });
@@ -61,7 +61,7 @@ fn test_udp_double_forwarder() {
             second_forwarder_uri,
             remote_uri,
             Some(String::from("some_password")),
-            false,
+            Args::default(),
         )
         .unwrap();
     });
@@ -99,7 +99,12 @@ fn test_udp_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38806/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("127.0.0.1:38807/udp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38808/udp").unwrap();
-    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        Args::default(),
+    );
 }
 
 #[test]
@@ -108,7 +113,12 @@ fn test_raw_icmpv4_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38809/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("127.0.0.1:38810/icmp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38811/udp").unwrap();
-    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        Args::default(),
+    );
 }
 
 #[test]
@@ -116,7 +126,12 @@ fn test_udp_ipv6_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38812/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("[::1]:38813/udp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38814/udp").unwrap();
-    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        Args::default(),
+    );
 }
 
 #[test]
@@ -125,7 +140,12 @@ fn test_raw_icmpv6_double_forwarder_back_and_forth() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38815/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("[::1]:38816/icmp").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38817/udp").unwrap();
-    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        Args::default(),
+    );
 }
 
 #[test]
@@ -134,20 +154,45 @@ fn test_raw_pushack_ipv4() {
     let forwarder_uri = Uri::from_str("127.0.0.1:38818/udp").unwrap();
     let second_forwarder_uri = Uri::from_str("127.0.0.1:38819/pushack").unwrap();
     let remote_uri = Uri::from_str("127.0.0.1:38820/udp").unwrap();
-    spawn_double_forwarder_and_test_connection(forwarder_uri, second_forwarder_uri, remote_uri);
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        Args::default(),
+    );
+}
+
+#[test]
+#[ignore = "requires raw socket, please run with ./test_raw.sh"]
+fn test_raw_icmpv6_ipv4() {
+    let forwarder_uri = Uri::from_str("127.0.0.1:38821/udp").unwrap();
+    let second_forwarder_uri = Uri::from_str("127.0.0.1:38822/icmp").unwrap();
+    let remote_uri = Uri::from_str("127.0.0.1:38823/udp").unwrap();
+    let args = Args {
+        force_icmpv6: true,
+        ..Default::default()
+    };
+    spawn_double_forwarder_and_test_connection(
+        forwarder_uri,
+        second_forwarder_uri,
+        remote_uri,
+        args,
+    );
 }
 
 fn spawn_double_forwarder_and_test_connection(
     forwarder_uri: Uri,
     second_forwarder_uri: Uri,
     remote_uri: Uri,
+    args: Args,
 ) {
+    let args_clone = args.clone();
     std::thread::spawn(move || {
         forwarder::run(
             forwarder_uri,
             second_forwarder_uri,
             Some(String::from("some_password")),
-            false,
+            args_clone,
         )
         .unwrap();
     });
@@ -156,7 +201,7 @@ fn spawn_double_forwarder_and_test_connection(
             second_forwarder_uri,
             remote_uri,
             Some(String::from("some_password")),
-            false,
+            args,
         )
         .unwrap();
     });

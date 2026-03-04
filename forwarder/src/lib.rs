@@ -5,7 +5,7 @@ pub mod socket;
 pub mod uri;
 pub(crate) mod utils;
 
-use crate::socket::icmp::IcmpEchoType;
+use crate::socket::icmp::{IcmpConfig, IcmpEchoType};
 use anyhow::Context;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use poll::Poll;
@@ -22,6 +22,12 @@ const MAX_PACKET_SIZE: usize = 65535;
 /// interval that cleanup happens, lowering this result in lower allowed unused time
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(7 * 60);
 
+#[derive(Default, Clone)]
+pub struct Args {
+    pub reverse_icmp: bool,
+    pub force_icmpv6: bool,
+}
+
 /// blocks current thread and runs a forwarder server that listens on `listen_uri` and forwards
 /// all incoming packets to `remote_uri` and also forwards all packets returned by `remote_uri`
 /// to the client that initiated the connection
@@ -33,19 +39,28 @@ pub fn run(
     listen_uri: Uri,
     remote_uri: Uri,
     passphrase: Option<String>,
-    reverse_icmp: bool,
+    args: Args,
 ) -> anyhow::Result<()> {
     let listen_addr = &listen_uri.addr;
-    let icmp_type = if reverse_icmp {
+    let force_icmpv6 = args.force_icmpv6;
+    let icmp_type = if args.reverse_icmp {
         IcmpEchoType::Reply
     } else {
         IcmpEchoType::Request
     };
-    let socket = Socket::bind(listen_uri.protocol, listen_addr, icmp_type)
+    let icmp_config = IcmpConfig {
+        echo_type: icmp_type,
+        force_icmpv6,
+    };
+    let socket = Socket::bind(listen_uri.protocol, listen_addr, icmp_config)
         .with_context(|| "couldn't create server")?;
     log::info!("listen on '{listen_addr}'");
 
-    let poll = poll::new(remote_uri.protocol, remote_uri.addr, icmp_type.opposite())
+    let icmp_config = IcmpConfig {
+        echo_type: icmp_type.opposite(),
+        force_icmpv6: args.force_icmpv6,
+    };
+    let poll = poll::new(remote_uri.protocol, remote_uri.addr, icmp_config)
         .with_context(|| "couldn't create poll")?;
     let registry = poll
         .get_registry()
@@ -65,6 +80,7 @@ pub fn run(
         passphrase,
         remote_uri,
         icmp_type.opposite(),
+        force_icmpv6,
         listen_uri.addr.port(),
     );
     Ok(())
@@ -86,6 +102,7 @@ fn run_server(
     passphrase: Option<String>,
     remote_uri: Uri,
     peer_icmp_type: IcmpEchoType,
+    force_icmpv6: bool,
     listening_port: u16,
 ) {
     let buffer = create_socket_buffer!(MAX_PACKET_SIZE);
@@ -112,7 +129,11 @@ fn run_server(
             None => {
                 log::info!("new client '{from_addr}'");
                 let peers = RwLockUpgradableReadGuard::upgrade(peers);
-                let peer = match add_new_peer(&remote_uri, from_addr, peers, peer_icmp_type) {
+                let icmp_config = IcmpConfig {
+                    echo_type: peer_icmp_type,
+                    force_icmpv6,
+                };
+                let peer = match add_new_peer(&remote_uri, from_addr, peers, icmp_config) {
                     Ok(peer) => peer,
                     Err(error) => {
                         log::error!("couldn't add new peer: {error:?}");
@@ -132,9 +153,9 @@ fn add_new_peer(
     remote_uri: &Uri,
     from_addr: SocketAddr,
     mut peers: RwLockWriteGuard<PeerManager>,
-    icmp_echo_type: IcmpEchoType,
+    icmp_config: IcmpConfig,
 ) -> anyhow::Result<Arc<Peer>> {
-    let new_peer = Peer::new(remote_uri, from_addr, icmp_echo_type)?;
+    let new_peer = Peer::new(remote_uri, from_addr, icmp_config)?;
     let peer = peers.add_peer(new_peer)?;
     Ok(peer)
 }
