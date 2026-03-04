@@ -237,15 +237,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "forwarder-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "forwarder",
- "socket2",
-]
-
-[[package]]
 name = "forwarder-cli"
 version = "0.2.0"
 dependencies = [
